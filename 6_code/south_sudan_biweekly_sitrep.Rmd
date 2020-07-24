@@ -9,7 +9,7 @@ output:
 
 ## Installing and loading required packages 
 <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// setup \\\
+/// seup \\\
 --------------------------------------------------------------------------------
 
 Several packages are required for different aspects of  analysis with *R*. 
