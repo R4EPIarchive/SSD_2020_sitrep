@@ -57,7 +57,8 @@ required_packages <- c("knitr",       # create output docs
                        "sf",          # encode spatial vector data
                        "ggspatial",   # plot maps
                        "xts",         # moving averages
-                       "zoo")         # moving averages
+                       "zoo",         # moving averages
+                       "classInt")    # specifying breaks for maps
 
 for (pkg in required_packages) {
   # install packages if not already present
@@ -97,12 +98,22 @@ week. Put it below.
 aweek::set_week_start will define the beginning of the week. The standard is
 Monday.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+**This section will need to be updated weekly**
+
 ```{r define_current_week}
 ## set the day that defines the beginning of your epiweek.
 aweek::set_week_start("Monday")
 
 ## set current week 
 reporting_week <- aweek::as.aweek("2020-W29")
+
+## set three weeks earlier
+three_weeks_earlier <- aweek::as.aweek("2020-W27")
+
+
+## set start of the year
+start_year <- as.aweek("2020-W01")
 
 ## sets the labels in ggplot for the epicurves
 epicurve_labels <- labs(x = "Calendar week", 
@@ -308,6 +319,9 @@ bentiu_last_current <- bind_rows(bentiu_mort_2019_clean,
 
 ## Create a four week moving average
 bentiu_last_current <- bentiu_last_current %>% 
+  ## create aweek compatible epiweek variable
+   mutate(epiweek = if_else(week <10, str_pad(week, 2, pad = 0), as.character(week)),
+         epiweek = as.aweek(paste0(year, "-W",epiweek))) %>% 
   ## average the weekly values of deaths for previous 4 weeks
   mutate(four_week_roll = rollmean(total_deaths, 4, na.pad = TRUE, align = "right"))
 
@@ -316,6 +330,11 @@ bentiu_last_current <- bentiu_last_current %>%
 
 ## Cleaning of AJS data
 - convert all variables to lower case
+- convert sn, epiweeek and age_y to integers
+- create year variables - 2019 and 2020
+- create an aweek epiweek variable
+- create an age_group variable
+- count cases by year and week
 
 
 ```{r ajs_clean}
@@ -327,17 +346,26 @@ bentiu_last_current <- bentiu_last_current %>%
 ajs_poc_clean <- ajs_poc_raw %>%
   ## convert all variables to lower case
   mutate_all(., str_to_lower) %>% 
-  ## convert sn to integer
-  mutate(sn = as.integer(sn)) %>% 
+  ## convert sn, epi_week and age_y to integers
+  mutate_at(c("sn", "epi_week", "age_y"),as.integer) %>% 
   ## Add year variables
   mutate(year = ifelse(sn <= 127, 2019, 2020)) %>% 
-  ## convert epi_week to integer
-  mutate(epi_week = as.integer(epi_week))
+  ## create a new bloc variable that removes the sector number from name
+  mutate(bloc = sub(".","", payam)) %>% 
+  ## create sector variable
+  mutate(is_in_sect = county) %>% 
+  ## create aweek compatible epiweek
+  mutate(epiweek2 = if_else(epi_week <10, str_pad(epi_week, 2, pad = 0), as.character(epi_week)),
+         epiweek2 = as.aweek(paste0(year, "-W",epiweek2))) %>% 
+  ## create an age group variable
+  mutate(age_group = age_categories(age_y, 
+                                   breakers = c(0, 5, 15, 30, 45)))
+
 
 
 ## Count cases by year and week
 ajs_poc_clean_grp <- ajs_poc_clean %>% 
-  group_by(year, epi_week) %>% 
+  group_by(year, epiweek2) %>% 
   ## count number of cases per year and week
   tally() %>% 
   ## average the weekly values of ajs cases for previous 4 weeks
@@ -347,22 +375,40 @@ ajs_poc_clean_grp <- ajs_poc_clean %>%
 
 ```
 
+## Apply data cleaning dictionary to AJS GIS data
+```{r ajs_gis_data_cleaning}
+
+## ## Standardising values --------------------------------------------------------
+# Import the dictionary that specifies the values of specific variables
+dictionary <- rio::import(here::here("7_data", "ajs", "dictionary_ssudan.xlsx"))
+
+## This step fixes the values so that you can read them.
+## values like 1/0 will be recoded as "Yes" / "No" based on the dictionary
+ ajs_poc_clean <- matchmaker::match_df(ajs_poc_clean,
+  dict  = dictionary,
+  from  = "options",
+  to    = "values",
+  by    = "grp",
+  order = "orders"
+ )
+
+```
 
 
 ## Bentiu mortality figure with four week moving average
 
 ```{r bentiu_mortality_figure}
 ## Plot weeks vs deaths by year
-ggplot(bentiu_last_current, aes(x = week, y = total_deaths, 
+ggplot(bentiu_last_current, aes(x = week2date(epiweek), y = total_deaths, 
                                 fill = as.factor(year))) +
   geom_col( ) +
   ## add the four week average as a line
-  geom_line(aes(x = week, y = four_week_roll), 
-            size = 1.2) +
-  ## facet by year
-  facet_grid(year ~ .) +
+  geom_line(aes(x = week2date(epiweek), y = four_week_roll), 
+            size = 1.2, colour = "black") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## Add labels
   labs(title = "Number of weekly deaths in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
-       x = "Week",
+       x = "Month",
        y = "Number of deaths",
        fill = "Year")
 
@@ -370,23 +416,30 @@ ggplot(bentiu_last_current, aes(x = week, y = total_deaths,
 
 
 #### AJS Demographics 
+From the start of the outbreak up until `r reporting_week` there were a 
+total of `r nrow(filter(ajs_poc_clean, year == 2020)`. There were
+`r fmt_count(filter(ajs_poc_clean, year == 2020), sex == "Female")` females and
+`r fmt_count(filter(ajs_poc_clean, year == 2020), sex == "Male")` males. 
+There were a total of `r nrow(filter(ajs_poc_clean, epiweek2 == reporting_week))` in `r reporting_week`
+
+The most affected age group was `r tab_linelist(filter(ajs_poc_clean, year == 2020), age_group) %>% slice(which.max(n)) %>% pull(value)` years. 
 
 
-There were `r fmt_count(ajs_poc_clean, is.na(sex)| sex == "Unknown/unspecified")` cases missing information on sex and `r fmt_count(measles_poc_cl, is.na(age_group))` missing age group.
 
 ## AJS epicurve
 ```{r bentiu_ajs_epicurve}
 
 ## AJS epicurve
 ## Plot weeks vs AJS cases by year
-ggplot(ajs_poc_clean_grp, aes(x = epi_week, y = n, 
+ggplot(ajs_poc_clean_grp, aes(x = week2date(epiweek2), y = n, 
                                 fill = as.factor(year))) +
   geom_col( ) +
   ## add the four week average as a line
-  geom_line(aes(x = epi_week, y = four_week_roll), 
+  geom_line(aes(x = week2date(epiweek2), y = four_week_roll), 
             size = 1.2) +
-  ## facet by year
-  facet_grid(year ~ .) +
+  ## add 3 month breaks and format the label
+  scale_x_date(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## Add labels
   labs(title = "Number of weekly AJS cases in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
        x = "Week",
        y = "Number of AJS cases",
@@ -395,10 +448,187 @@ ggplot(ajs_poc_clean_grp, aes(x = epi_week, y = n,
 ```
 
 
-## AJS maps
+## Maps
+#### Maps 
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// read_shapefiles \\\
+--------------------------------------------------------------------------------
+
+To create maps, you need to have a shapefile of the area. Often, the MSF GIS
+unit can provide shapefiles.
+
+Your shapefile can be a polygon or points. Polygons do not need to be contiguous.
+
+The names of the polygons or points MUST match the names in your linelist.
+
+Your coordinate reference system needs to be WGS84.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+```{r read_shapefiles, message = FALSE, warning = FALSE, echo = FALSE}
+
+## read in shapefile by sous_prefecture
+map_poc_raw <- read_sf(here::here("../../../2_GIS/bentiu/BentiuPoC_sector_bloc_191128.shp")) %>% 
+  # puts all column names to lower case
+  janitor::clean_names()                                                               
+  
+  
+#  Clean map data
+map_poc_cl <-  map_poc_raw %>% 
+  ## convert all values to lowercase
+  mutate_at(c("is_in_sect", "name"), str_to_lower) %>%  
+  mutate(is_in_sect = str_replace(is_in_sect, " ", "_"),  # replace space with _
+         name = str_replace(name, " ", "_"),              # replace space with _   
+         bloc = name,                                     # create bloc variable to match linelist 
+         sector_bloc_name = paste0(is_in_sect, " ", bloc))     # create variable that combines both sector and bloc number                                        
+
+## check the coordinate reference system (CRS)
+# st_crs(map_poc_cl)
+
+## if CRS not WGS84, reset it
+# map <- st_set_crs(map, value = 4326) # Sets to WGS84
+
+```
+
+## Base layer from OSM
+
+```{r obtain_base_layer}
+
+tiles <- cartography::getTiles(
+  map_poc_cl,
+  type = "OpenStreetMap",
+  zoom = NULL,
+  crop = TRUE,
+  verbose = FALSE,
+  apikey = NA,
+  cachedir = FALSE,
+  forceDownload = FALSE
+)
+
+```
+
+
+## AJS choropleth - cases last 3 weeks
+
+```{r choropleth, message = FALSE, warning = FALSE, echo = FALSE}
+
+## Count cases by sector and block in the past 4 weeks
+ajs_past3wks <- ajs_poc_clean %>% 
+  filter(epiweek2 >= three_weeks_earlier & epiweek2 <= reporting_week ) %>% # Only keep cases that occurred in the past 4 week
+  filter(is.na(is_in_sect) == F) %>%                                   # only keep rows where there is sector information
+  group_by(is_in_sect, bloc) %>%                                       # group date by sector and block
+  tally() %>%                                                          # count rows matching above criteria per sector per block
+  mutate(sector_bloc_name = paste0(is_in_sect, " ", bloc))             # create variable that includes the name of the sector and bloc number
+
+## Define breaks
+breakers <- classIntervals(ajs_past3wks$n, n = 3, style = "quantile", digits = 0)
+
+## create a categorical variable using the age_categories function 
+# ## (we aren't using ages - but it functions the same way!)
+# ajs_past3wks <- mutate(ajs_past3wks, 
+#                       cases = age_categories(n, 
+#                                              breakers = breakers$brks))
+
+  
+
+## Join case count to map data
+map_ajs_3weeks_cases <- map_poc_cl %>% 
+  left_join(ajs_past3wks, by = "sector_bloc_name") 
 
 
 
+## Plot map of cases by block
+
+ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_ajs_3weeks_cases, aes(fill = as.factor(n))) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  # add a scalebar
+  annotation_scale() + 
+  # choose palette colour for fill
+  scale_fill_brewer(palette = "Dark2") +
+  # scale_x_discrete( breaks = breakers$brks) +
+  # label polygons
+  geom_sf_text(data = map_ajs_3weeks_cases, aes(label = bloc.x), colour = "black", size = 3) +
+  geom_text(data = data.frame(), aes(label = 'Sector 1', x = 29.785, y = 9.339), angle = 10, vjust = 1) +
+  geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34), angle = 10, hjust =  0.8) +
+  geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339, angle = -70, hjust = 1, vjust =  0.7)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, angle = -70, hjust = 1, vjust = - 0.1)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.45)) +
+  # remove coordinates and axes
+  theme_void() +
+  labs(fill = "No. of cases",
+       captions = str_glue("Source: MSF data from {three_weeks_earlier} to {reporting_week}")) 
+
+
+```
+
+## AJS choropleth - since start of the year
+
+```{r choropleth, message = FALSE, warning = FALSE, echo = FALSE}
+
+## Count cases by sector and block in the past 4 weeks
+ajs_2020 <- ajs_poc_clean %>% 
+  filter(year == 2020 ) %>% # Only keep cases that occurred in 2020
+  filter(is.na(is_in_sect) == F) %>%                                   # only keep rows where there is sector information
+  group_by(is_in_sect, bloc) %>%                                       # group date by sector and block
+  tally() %>%                                                          # count rows matching above criteria per sector per block
+  mutate(sector_bloc_name = paste0(is_in_sect, " ", bloc))             # create variable that includes the name of the sector and bloc number
+
+# define maximum number of cases
+max_ajs_2020_cases    <- max(ajs_2020$n, na.rm = TRUE) # define your highest no of cases
+
+## Define breaks
+breakers <- as.integer(c(
+                         # include zero as a standalone group
+                         0, 
+                         # 1 to 4 divisions, snapping the boundaries to the nearest 2
+                         find_breaks(n = max_ajs_2020_cases, breaks = 4, snap = 2)
+             ))
+
+## create a categorical variable using the age_categories function 
+## (we aren't using ages - but it functions the same way!)
+ajs_2020 <- mutate(ajs_2020, 
+                      cases = age_categories(n, 
+                                             breakers = breakers))
+
+  
+
+## Join case count to map data
+map_ajs_2020_cases <- map_poc_cl %>% 
+  left_join(ajs_2020, by = "sector_bloc_name") 
+
+
+
+## Plot map of cases by block
+
+ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_ajs_2020_cases, aes(fill = cases)) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  # add a scalebar
+  annotation_scale() + 
+  # choose palette colour for fill
+  scale_fill_brewer(palette = "Dark2") +
+  # scale_x_discrete( breaks = breakers$brks) +
+  # label polygons
+  geom_sf_text(data = map_ajs_2020_cases, aes(label = bloc.x), colour = "black", size = 3) +
+  geom_text(data = data.frame(), aes(label = 'Sector 1', x = 29.785, y = 9.339), angle = 10, vjust = 1) +
+  geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34), angle = 10, hjust =  0.8) +
+  geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339, angle = -70, hjust = 1, vjust =  0.7)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, angle = -70, hjust = 1, vjust = - 0.1)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.45)) +
+  # remove coordinates and axes
+  theme_void() +
+  labs(fill = "No. of cases",
+       captions = str_glue("Source: MSF data from {start_year} to {reporting_week}")) 
+
+
+```
 
 <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /// prep_nonDHIS_data \\\
