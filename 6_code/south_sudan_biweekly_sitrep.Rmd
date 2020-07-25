@@ -9,7 +9,7 @@ output:
 
 ## Installing and loading required packages 
 <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// seup \\\
+/// setup \\\
 --------------------------------------------------------------------------------
 
 Several packages are required for different aspects of  analysis with *R*. 
@@ -55,7 +55,9 @@ required_packages <- c("knitr",       # create output docs
                        "aweek",       # define epi weeks
                        "epitrix",     # epi helpers and tricks
                        "sf",          # encode spatial vector data
-                       "ggspatial")   # plot maps
+                       "ggspatial",   # plot maps
+                       "xts",         # moving averages
+                       "zoo")         # moving averages
 
 for (pkg in required_packages) {
   # install packages if not already present
@@ -100,7 +102,7 @@ Monday.
 aweek::set_week_start("Monday")
 
 ## set current week 
-reporting_week <- aweek::as.aweek("2019-W25")
+reporting_week <- aweek::as.aweek("2020-W29")
 
 ## sets the labels in ggplot for the epicurves
 epicurve_labels <- labs(x = "Calendar week", 
@@ -109,41 +111,6 @@ epicurve_labels <- labs(x = "Calendar week",
                         subtitle = str_glue("Source: MSF data from {reporting_week}")
                        ) 
 ```
-
-
-
-<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/// read_fake_data \\\
---------------------------------------------------------------------------------
-
-
-To play with this template, you can create fake data. Comment out this chunk
-when you are using real data.
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
-```{r read_fake_data, warning = FALSE, message = FALSE}
-
-linelist_raw <- gen_data("Measles")
-
-## fake lab data
-# lab_results <- linelist_cleaned %>% 
-#                 select(case_number) %>% 
-#                 mutate(test_result = sample(c("Positive", "Negative"),
-#                                             nrow(linelist_cleaned), 
-#                                             replace = TRUE)
-#                        )
-```
-
-
-
-<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-You should load your data as a linelist, where each row is one case.
-
-There are two options:
-- Your data is from DHIS2: use read_DHIS_excel_data
-- Your data is NOT FROM DHIS2 and in Excel, CSV, or Stata format: 
-use read_nonDHIS_data
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
-
 
 
 <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -233,42 +200,203 @@ linelist_cleaned <- matchmaker::match_df(linelist_cleaned,
 --------------------------------------------------------------------------------
 
 This section is for data not from DHIS2.
-If you have already loaded data from DHIS2, go to read_population_data.
+The following data will be included under non-DHIS2 data
+1. COVID-19 linelists from Bentiu and Lankien
+2. Mortality linelist from Bentiu PoC
+3. Malnutrition data from Mundri and Unity Excel tools
+4. AWD data from Mundri and Unity Excel tools
+5. Malaria data from Mundri and Unity Excel tools
+6. AJS linelist from Bentiu and Lankien
+7. Measles linelist from Bentiu and from Mundri and Unity Excel tools
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
 
 ```{r read_nonDHIS_data, warning = FALSE, message = FALSE}
 
-## Excel file ------------------------------------------------------------------
+## COVID data ------------------------------------------------------------------
 ## to read in a specific sheet use "which"
 # linelist_raw <- rio::import(here::here("linelist.xlsx"), which = "Sheet1")
 
 
 
-## Excel file -- Specific range ------------------------------------------------
-## you can specify a range in an excel sheet.
-# linelist_raw <- rio::import(here::here("linelist.xlsx"), range = "B2:J102")
+## Mortality ------------------------------------------------
+## Bentiu PoC
+## 2019
+bentiu_mort_2019_raw <- rio::import(here::here("7_data",
+                                               "mortality", 
+                                               "raw",
+                                               "Bentiu PoC Mortality Line List Report for IDP Sites Wk 52-2019.xls"),
+                                    skip = 2, 
+                                    which = "Mortality rate") %>% 
+  ## make all variable names lower case
+  janitor::clean_names() %>% 
+  ## remove empty rows
+  janitor::remove_empty("rows")
+
+
+## Bentiu PoC
+## current reporting week data
+bentiu_mort_current_raw <- rio::import(here::here("7_data",
+                                                  "mortality", 
+                                                  "raw",
+                                                  "Bentiu PoC Mortality Line List Report for IDP Sites Wk 29.xls"), 
+                                       skip = 2,
+                                       which = "Mortality rate") %>% 
+  ## make all variable names lower case
+  janitor::clean_names() %>% 
+  ## remove empty rows
+  janitor::remove_empty("rows")
 
 
 
-## Excel file with password ----------------------------------------------------
-## use this section if your Excel has a password.
 
-# install.packages(c("excel.link", "askpass"))
-# library(excel.link)
+## AJS  ----------------------------------------------------
+ajs_poc_raw <- rio::import(here::here("7_data", 
+                                      "ajs",
+                                      "raw", 
+                                      "MSF_Bentiu PoCs_AJS line list_Wk 29- 2020.xlsx"),
+                           skip = 3,
+                           which = "AJS") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()  %>% 
+  ## remove empty rows and columns
+  janitor::remove_empty(c("rows", "cols")) %>% 
+  ##remove first row
+  slice(-1)
 
-# linelist_raw <- xl.read.file(here::here("linelist.xlsx"),
-#                              xl.sheet = "Sheet1",
-#                              password = askpass::askpass(prompt = "please enter file password"))
-
-
-## CSV file --------------------------------------------------------------------
-# linelist_raw <- rio::import(here::here("linelist.csv"))
-
-
-
-## Stata data file -------------------------------------------------------------
-# linelist_raw <- rio::import(here::here("linelist.dat"))
 ```
+
+
+
+## Cleaning of mortality data
+We can combine the 2019 and 2020 data
+
+```{r prep_mortality_data}
+
+## browse data
+str(bentiu_mort_2019_raw)
+str(bentiu_mort_current_raw)
+
+##  Add year to both datasets
+bentiu_mort_2019_clean <- bentiu_mort_2019_raw %>% 
+  mutate(year = 2019) %>% 
+  ## Only keep the rows with data for total deaths
+  filter(is.na(d_total_week) == F) %>% 
+  ## Select relevant variables and rename
+  select(year, 
+         week, 
+         "less_5yrs" = d_5_week,
+         "more_5yrs" = d_5_week_2,
+         "total_deaths" = d_total_week,
+         "population" = popul_tot)
+
+bentiu_mort_current_clean <- bentiu_mort_current_raw %>% 
+  mutate(year = 2020) %>% 
+  ## Only keep the rows with data for total deaths
+  filter(is.na(d_total_week) == F) %>% 
+  ## Select relevant variables
+  select(year, 
+         week, 
+         "less_5yrs" = d_5_week,
+         "more_5yrs" = d_5_week_2,
+         "total_deaths" = d_total_week,
+         "population" = popul_tot)
+
+## Combine both datasets
+bentiu_last_current <- bind_rows(bentiu_mort_2019_clean, 
+                              bentiu_mort_current_clean)
+
+
+## Create a four week moving average
+bentiu_last_current <- bentiu_last_current %>% 
+  ## average the weekly values of deaths for previous 4 weeks
+  mutate(four_week_roll = rollmean(total_deaths, 4, na.pad = TRUE, align = "right"))
+
+```
+
+
+## Cleaning of AJS data
+- convert all variables to lower case
+
+
+```{r ajs_clean}
+## browse data
+# str(ajs_poc_raw)
+
+
+## AJS cleaning
+ajs_poc_clean <- ajs_poc_raw %>%
+  ## convert all variables to lower case
+  mutate_all(., str_to_lower) %>% 
+  ## convert sn to integer
+  mutate(sn = as.integer(sn)) %>% 
+  ## Add year variables
+  mutate(year = ifelse(sn <= 127, 2019, 2020)) %>% 
+  ## convert epi_week to integer
+  mutate(epi_week = as.integer(epi_week))
+
+
+## Count cases by year and week
+ajs_poc_clean_grp <- ajs_poc_clean %>% 
+  group_by(year, epi_week) %>% 
+  ## count number of cases per year and week
+  tally() %>% 
+  ## average the weekly values of ajs cases for previous 4 weeks
+  mutate(four_week_roll = rollmean(n, 4, na.pad = TRUE, align = "right"))
+
+  
+
+```
+
+
+
+## Bentiu mortality figure with four week moving average
+
+```{r bentiu_mortality_figure}
+## Plot weeks vs deaths by year
+ggplot(bentiu_last_current, aes(x = week, y = total_deaths, 
+                                fill = as.factor(year))) +
+  geom_col( ) +
+  ## add the four week average as a line
+  geom_line(aes(x = week, y = four_week_roll), 
+            size = 1.2) +
+  ## facet by year
+  facet_grid(year ~ .) +
+  labs(title = "Number of weekly deaths in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
+       x = "Week",
+       y = "Number of deaths",
+       fill = "Year")
+
+```
+
+
+#### AJS Demographics 
+
+
+There were `r fmt_count(ajs_poc_clean, is.na(sex)| sex == "Unknown/unspecified")` cases missing information on sex and `r fmt_count(measles_poc_cl, is.na(age_group))` missing age group.
+
+## AJS epicurve
+```{r bentiu_ajs_epicurve}
+
+## AJS epicurve
+## Plot weeks vs AJS cases by year
+ggplot(ajs_poc_clean_grp, aes(x = epi_week, y = n, 
+                                fill = as.factor(year))) +
+  geom_col( ) +
+  ## add the four week average as a line
+  geom_line(aes(x = epi_week, y = four_week_roll), 
+            size = 1.2) +
+  ## facet by year
+  facet_grid(year ~ .) +
+  labs(title = "Number of weekly AJS cases in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
+       x = "Week",
+       y = "Number of AJS cases",
+       fill = "Year")
+
+```
+
+
+## AJS maps
+
 
 
 
@@ -2212,4 +2340,10 @@ for (week in unique(cases$epiweek)) {
   )
 }
 ```
+
+
+
+
+###
+
 
