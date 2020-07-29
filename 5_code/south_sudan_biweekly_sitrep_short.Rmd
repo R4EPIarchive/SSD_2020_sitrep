@@ -448,7 +448,9 @@ ben_lan_awd_mal <- bind_rows(bentiu_awd_mal_raw, lankien_awd_mal_raw) %>%
   mutate(epiweek = yearweek(year_week)) %>% 
   ## add up total awd and total malaria cases
   mutate(all_awd = awd_under5 + awd_over5,
-         all_malaria = malaria_under5 + malaria_over5)
+         all_malaria = malaria_under5 + malaria_over5) %>% 
+  ## only keep data up to reporting week
+ filter(epiweek <= reporting_week)
 
 
 ## Make wide dataset for awd
