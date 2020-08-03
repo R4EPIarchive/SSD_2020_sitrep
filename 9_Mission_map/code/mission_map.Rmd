@@ -1,0 +1,141 @@
+---
+title: "Mission project map"
+output: 
+  word_document:
+    keep_md: true
+editor_options: 
+  chunk_output_type: console
+---
+
+
+## Installing and loading required packages 
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// setup \\\
+--------------------------------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+
+```{r setup, include=FALSE, results='hide', message=FALSE, warning=FALSE}
+## hide all code chunks in the output, but show errors
+knitr::opts_chunk$set(echo = FALSE,       # hide all code chunks in output
+                      error = TRUE,       # show errors if they appear, but don't stop
+                      fig.width = 6*1.25, # Figure width
+                      fig.height = 6      # Figure height
+                     )
+
+
+
+## set default NA to - in output, define figure width/height
+options(knitr.kable.NA = "-")
+
+
+
+## Installing required packages for this template
+required_packages <- c("knitr",       # create output docs
+                       "here",        # find your files
+                       "rio",         # read in data
+                       "ggplot2",     # create plots and charts
+                       "sf",          # encode spatial vector data
+                       "ggspatial",   # plot maps
+                       "viridis",     # colour palette tool
+                       "RColorBrewer")# colour palette tool
+
+for (pkg in required_packages) {
+  # install packages if not already present
+  if (!pkg %in% rownames(installed.packages())) {
+    install.packages(pkg)
+  }
+  
+  # load packages to this current session 
+  library(pkg, character.only = TRUE)
+}
+
+
+
+## set default text size to 16 for plots
+## give classic black/white axes for plots
+ggplot2::theme_set(theme_classic(base_size = 18))
+```
+
+
+#### Maps 
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// read_shapefiles \\\
+--------------------------------------------------------------------------------
+
+To create maps, you need to have a shapefile of the area. Often, the MSF GIS
+unit can provide shapefiles.
+
+Your shapefile can be a polygon or points. Polygons do not need to be contiguous.
+
+The names of the polygons or points MUST match the names in your linelist.
+
+Your coordinate reference system needs to be WGS84.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+```{r read_shapefiles, message=FALSE}
+
+## read in shapefile
+map_ssudan <- read_sf(here::here("../../../2_GIS/admin_boundaries/ssd_admbnda_adm2_imwg_nbs_20180817.shp")) %>% 
+  # puts all column names to lower case
+  janitor::clean_names()                                                               
+
+## check the coordinate reference system (CRS)
+st_crs(map_ssudan)
+
+## if CRS not WGS84, reset it
+# map <- st_set_crs(map, value = 4326) # Sets to WGS84
+
+```
+
+
+## Get basemap from OSM
+
+```{r basemap}
+
+tiles <- cartography::getTiles(
+  map_ssudan,
+  type = "OpenStreetMap",
+  zoom = NULL,
+  crop = TRUE,
+  verbose = FALSE,
+  apikey = NA,
+  cachedir = FALSE,
+  forceDownload = FALSE
+)
+
+```
+
+## Map of South Sudan with states and districts?
+
+```{r map_ssudan_state}
+
+ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_ssudan, aes(fill = adm1_en)) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  ## change the colour palette for the states
+  scale_fill_brewer(palette = "Paired") +
+  # add a scalebar
+  annotation_scale() + 
+  ## add names of sub districts
+  geom_sf_text(data = map_ssudan, aes(label = adm2_en), colour = "black", size = 3.5) +
+  # remove coordinates and axes
+  theme_void() +
+  ## labels
+  labs(fill = "Admin level 1")
+
+
+```
+
+
+
+
+
+
+
+
+
+
