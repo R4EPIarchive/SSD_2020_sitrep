@@ -69,7 +69,8 @@ required_packages <- c("knitr",       # create output docs
                        "askpass",     # opening password protected files
                        "tsibble",     # time series data
                        "slider",      # time series data
-                       "tidyr")       # wide/long adjustements to data
+                       "tidyr",       # wide/long adjustements to data
+                       "patchwork")   # combining plots together
 
 for (pkg in required_packages) {
   # install packages if not already present
@@ -113,20 +114,17 @@ Monday.
 **This section will need to be updated weekly**
 
 ```{r define_current_week}
-## set the day that defines the beginning of your epiweek.
-# aweek::set_week_start("Monday")
-
 ## set current week 
-reporting_week <- yearweek("2020 W29")
+reporting_week <- yearweek("2020 W31")
 
 ## set previous week
-two_weeks_earlier <- yearweek("2020 W28")
+two_weeks_earlier <- reporting_week -1 
 
 ## set three weeks earlier
-three_weeks_earlier <- yearweek("2020 W27")
+three_weeks_earlier <- reporting_week -2
 
 ## set four weeks earlier
-four_weeks_earlier <- yearweek("2020 W26")
+four_weeks_earlier <- reporting_week -3
 
 ## set reporting year
 reporting_year <- 2020
@@ -135,12 +133,6 @@ reporting_year <- 2020
 ## set start of the year
 start_year <- yearweek("2020 W01")
 
-## sets the labels in ggplot for the epicurves
-epicurve_labels <- labs(x = "Calendar week", 
-                        y = "Cases (n)", 
-                        title = "Cases by week of onset",
-                        subtitle = str_glue("Source: MSF data from {reporting_week}")
-                       ) 
 ```
 
 
@@ -150,6 +142,11 @@ epicurve_labels <- labs(x = "Calendar week",
 
 source(here::here("8_functions/read_msf_data.R"))
 
+source(here::here("8_functions/aaa_get_latest_data.R"))
+
+source(here::here("8_functions/aaa_file_name_helpers.R"))
+
+source(here::here("8_functions/current_data.R"))
 ```
 
 
@@ -170,20 +167,15 @@ This section is for the following datasets
 
 ## AWD/malaria ------------------------------------------------------------------
 ### bentiu
-bentiu_awd_mal_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "bentiu",
-                                          "bentiu_awd_malaria_week29.xls"), 
-                              skip = 2,
+bentiu_awd_mal_raw <- rio::import(current_raw_awd_malaria_bentiu, 
+                             skip = 2,
                               which = "Bentiu Healthcare") %>% 
   ## make all variable names lower case
   janitor::clean_names()
+  
 
 ###lankien
-lankien_awd_mal_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "lankien",
-                                          "lankien_awd_malaria_week29.xls"), 
+lankien_awd_mal_raw <- rio::import(current_raw_awd_malaria_lankien, 
                               skip = 2,
                               which = "Lankien OPD, Lankien Hospital") %>% 
   ## make all variable names lower case
@@ -191,15 +183,8 @@ lankien_awd_mal_raw <- rio::import(here::here("6_data",
 
 
 
-
-
-
-
 ## Mundri AWD
-mundri_awd_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "mundri",
-                                          "mundri_awd_week29.xlsx"), 
+mundri_awd_raw <- rio::import(current_raw_awd_mundri, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
@@ -207,19 +192,13 @@ mundri_awd_raw <- rio::import(here::here("6_data",
 
 ## ITFC  ------------------------------------------------------------------
 ### bentiu
-bentiu_itfc_raw <- rio::import(here::here("6_data",
-                                         "itfc", 
-                                          "bentiu",
-                                          "weekly_itfc_week29.xlsx"), 
+bentiu_itfc_raw <- rio::import(current_itfc_bentiu, 
                               which = "Sheet1")  %>% 
   ## make all variable names lower case
   janitor::clean_names()
 
 ###lankien
-lankien_itfc_raw <- rio::import(here::here("6_data",
-                                         "itfc", 
-                                          "lankien",
-                                          "lankien_weekly_itfc_week29.csv"), 
+lankien_itfc_raw <- rio::import(current_itfc_lankien, 
                               which = "lankien_weekly_itfc_week29") %>% 
   ## make all variable names lower case
   janitor::clean_names()
@@ -227,9 +206,7 @@ lankien_itfc_raw <- rio::import(here::here("6_data",
 
 ## Respiratory failure  ------------------------------------------------------------------
 ### bentiu
-bentiu_resp_mort_raw <- rio::import(here::here("6_data",
-                                         "resp_failure", 
-                                          "resp_failure_bentiu_week29.xls"), 
+bentiu_resp_mort_raw <- rio::import(current_resp_failure, 
                               skip = 2,
                               which = "Bentiu Healthcare")  %>% 
   ## make all variable names lower case
@@ -256,26 +233,18 @@ The following data will be included under non-DHIS2 data
 
 ## COVID data ------------------------------------------------------------------
 ## Bentiu
-bentiu_covid_raw  <- rio::import(here::here("6_data",
-                                             "covid", 
-                                             "raw",
-                                             "linelist_Covid_Bentiu PoC_2020-07-21.xlsx"),
+bentiu_covid_raw  <- rio::import(current_covid_bentiu,
                                   which = "linelist")
                                    
 ## Lankien
-lankien_covid_raw  <- rio::import(here::here("6_data",
-                                             "covid", 
-                                             "raw",                                      "linelist_Covid_Lankien_2020-07-20.xlsx"),
+lankien_covid_raw  <- rio::import(current_covid_lankien,
                                   which = "linelist")                                   
 
                                    
 ## Mortality ------------------------------------------------
 ## Bentiu PoC
 ## 2019
-bentiu_mort_2019_raw <- rio::import(here::here("6_data",
-                                               "mortality", 
-                                               "raw",
-                                               "Bentiu PoC Mortality Line List Report for IDP Sites Wk 52-2019.xls"),
+bentiu_mort_2019_raw <- rio::import(raw_mortality_bentiu_2019,
                                     skip = 2, 
                                     which = "Mortality rate") %>% 
   ## make all variable names lower case
@@ -286,10 +255,7 @@ bentiu_mort_2019_raw <- rio::import(here::here("6_data",
 
 ## Bentiu PoC Mortality
 ## current reporting week data
-bentiu_mort_current_raw <- rio::import(here::here("6_data",
-                                                  "mortality", 
-                                                  "raw",
-                                                  "Bentiu PoC Mortality Line List Report for IDP Sites Wk 29.xls"), 
+bentiu_mort_current_raw <- rio::import(current_mortality_bentiu, 
                                        skip = 2,
                                        which = "Mortality rate") %>% 
   ## make all variable names lower case
@@ -301,10 +267,7 @@ bentiu_mort_current_raw <- rio::import(here::here("6_data",
 
 
 ## Bentiu POC AJS  ----------------------------------------------------
-ajs_poc_raw <- rio::import(here::here("6_data", 
-                                      "ajs",
-                                      "raw", 
-                                      "MSF_Bentiu PoCs_AJS line list_Wk 29- 2020.xlsx"),
+ajs_poc_raw <- rio::import(current_raw_ajs_bentiu,
                            skip = 3,
                            which = "AJS") %>% 
   ## make all variable names lower case
@@ -317,10 +280,7 @@ ajs_poc_raw <- rio::import(here::here("6_data",
 
 ## Bentiu POC Measles  ----------------------------------------------------
 
-measles_poc_raw <- rio::import(here::here("6_data", 
-                                      "measles",
-                                      "raw", 
-                                      "MSF_Bentiu_Measles Line List_Wk 29-2020.xlsx"),
+measles_poc_raw <- rio::import(current_raw_measles_bentiu,
                            which = "Measles Line List 2020") %>% 
   ## make all variable names lower case
   janitor::clean_names()  %>% 
@@ -331,20 +291,14 @@ measles_poc_raw <- rio::import(here::here("6_data",
 ## Excel tools ------------------------------------------------
 ## Unity AWD
 ### 2019
-unity_awd_2019_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "unity",
-                                          "unity_awd_2019.xlsx"), 
+unity_awd_2019_raw <- rio::import(raw_awd_unity_2019, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
 
 
 ## 2020
-unity_awd_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "unity",
-                                          "unity_awd_week29.xlsx"), 
+unity_awd_raw <- rio::import(current_raw_awd_unity, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
@@ -352,20 +306,14 @@ unity_awd_raw <- rio::import(here::here("6_data",
 
 ## Mundri AWD
 ### 2019
-mundri_awd_2019_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria",
-                                          "mundri",
-                                          "mundri_awd_2019.xlsx"),
+mundri_awd_2019_raw <- rio::import(raw_awd_mundri_2019,
                               which = "Sheet1") %>%
   ## make all variable names lower case
   janitor::clean_names()
 
 
 ## 2020
-mundri_awd_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "mundri",
-                                          "mundri_awd_week29.xlsx"), 
+mundri_awd_raw <- rio::import(current_raw_awd_mundri, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
@@ -373,20 +321,14 @@ mundri_awd_raw <- rio::import(here::here("6_data",
 ## Malaria
 ## Unity Malaria
 ### 2019
-unity_malaria_2019_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "unity",
-                                          "unity_malaria_2019.xlsx"), 
+unity_malaria_2019_raw <- rio::import(raw_malaria_unity_2019, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
 
 
 ## 2020
-unity_malaria_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "unity",
-                                          "unity_malaria_week29.xlsx"), 
+unity_malaria_raw <- rio::import(current_raw_malaria_unity, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
@@ -394,20 +336,14 @@ unity_malaria_raw <- rio::import(here::here("6_data",
 
 ## Mundri malaria
 ### 2019
-mundri_mal_2019_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria",
-                                          "mundri",
-                                          "mundri_malaria_2019.xlsx"),
+mundri_mal_2019_raw <- rio::import(raw_malaria_mundri_2019,
                               which = "Sheet1") %>%
   ## make all variable names lower case
   janitor::clean_names()
 
 
 ## 2020
-mundri_mal_raw <- rio::import(here::here("6_data",
-                                         "awd_malaria", 
-                                          "mundri",
-                                          "mundri_malaria_week29.xlsx"), 
+mundri_mal_raw <- rio::import(current_raw_malaria_mundri, 
                               which = "Sheet1") %>% 
   ## make all variable names lower case
   janitor::clean_names()
