@@ -351,7 +351,7 @@ mundri_mal_raw <- rio::import(current_raw_malaria_mundri,
 ```
 
 
-## AWD and malaria
+## AWD
 ### Bentiu and Lankien
 - Add a site variable to both datasets
 - combine both datasets
@@ -555,29 +555,196 @@ ssudan_awd_4ma <- bind_rows(mundri_awd_19_20_ma, unity_awd_19_20_ma,
 ```
 
 
-<!-- ## Make wide dataset for malaria -->
-<!-- ben_lan_mal_wide <- ben_lan_awd_mal %>%  -->
-<!--   ## select the variables to keep -->
-<!--   select(epiweek, site, malaria_under5, malaria_over5) %>%  -->
-<!--   pivot_longer(cols = c("malaria_under5", "malaria_over5"), -->
-<!--                names_to = "malaria_age", -->
-<!--                values_to = "count") -->
+## Malaria
+### Bentiu and Lankien
+- as some data cleaning already done, only need to make the wide dataset and
+- make the 4 week moving average
+```{r mal_ben_lan}
+## Make wide dataset for malaria
+ben_lan_mal_wide <- ben_lan_awd_mal %>% 
+  ## select the variables to keep
+  select(epiweek, site, malaria_under5, malaria_over5) %>% 
+  pivot_longer(cols = c("malaria_under5", "malaria_over5"),
+               names_to = "malaria_age",
+               values_to = "count")
 
 
-<!-- ## Create dataset with moving averages -->
-<!-- ben_lan_awd_mal_ma <- ben_lan_awd_mal %>%  -->
-<!--   ## add 4 moving averages for awd and malaria -->
-<!--   ## make counts in to tsibble so it recognises weeks as main time var -->
-<!--   as_tsibble(index = epiweek, key = site) %>%  -->
-<!--   group_by(site) %>%  -->
-<!--   ## create a moving average variable (deals with missings) -->
-<!--   mutate(ma_awd_4wk = slide_dbl(all_awd, ~mean(.x, na.rm = TRUE), .before = 3 ), -->
-<!--          ma_mal_4wk = slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), .before = 3 )) -->
+## Create dataset with moving averages
+ben_lan_mal_ma <- ben_lan_awd_mal %>%
+  ## add 4 moving averages for malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>%
+  group_by(site) %>%
+  ## create a moving average variable (deals with missings)
+  mutate(ma_malaria_4wk = slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), .before = 3 ))
+
+
+```
+
+### Unity
+- create an epiweek variable
+- add a year variable
+- combine the 2019 and 2020 datasets
+- make a wide dataset based on the age variables
+
+```{r clean_malaria_unity}
+## Unity 2019
+## Add a site variable to each dataset
+unity_malaria_2019_cl <- unity_malaria_2019_raw %>%
+  mutate(site = "unity") %>% 
+  ## create a year variable
+  mutate(year = 2019) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+## select variables of interest and relabel
+  select(epiweek, 
+         malaria_under5 = under5,
+         malaria_over5 = over5,
+         site,
+         year)
+
+
+## Unity 2020
+## Add a site variable to each dataset
+unity_malaria_cl <- unity_malaria_raw %>%
+  mutate(site = "unity") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         malaria_under5 = under5,
+         malaria_over5 = over5,
+         site,
+         year)
+
+
+## make combined dataset
+unity_malaria_19_20_cl <- bind_rows(unity_malaria_2019_cl, unity_malaria_cl) %>% 
+  ## add total value of awd cases
+  mutate(all_malaria = malaria_under5 + malaria_over5)
 
 
 
+## Make wide dataset for malaria
+unity_malaria_19_20_wide <- unity_malaria_19_20_cl %>% 
+  ## select the variables to keep
+  select(epiweek, site, malaria_under5, malaria_over5) %>% 
+  pivot_longer(cols = c("malaria_under5", "malaria_over5"),
+               names_to = "malaria_age",
+               values_to = "count")
 
-### Respiratory failure
+
+## Create dataset with moving averages
+unity_malaria_19_20_ma <- unity_malaria_19_20_cl %>% 
+  ## add 4 moving averages for malaria and malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving average variable (deals with missings)
+  mutate(ma_malaria_4wk = slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), .before = 3 ))
+  
+  
+
+```
+
+### malaria Mundri
+- create an epiweek variable
+- add a year variable
+- combine the datasets
+- make a wide dataset based on the age variables
+
+```{r clean_malaria_mundri}
+
+## Mundri 2019
+## Add a site variable to each dataset
+mundri_malaria_2019_cl <- mundri_mal_2019_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2019) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         malaria_under5 = under5,
+         malaria_over5 = over5,
+         site,
+         year)
+
+
+## Mundri 2020
+## Add a site variable to each dataset
+mundri_malaria_cl <- mundri_mal_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         malaria_under5 = under5,
+         malaria_over5 = over5,
+         site,
+         year)
+
+
+
+# ## make combined dataset
+mundri_malaria_19_20_cl <- bind_rows(mundri_malaria_2019_cl, mundri_malaria_cl) %>% 
+  ## add total value of malaria cases
+  mutate(all_malaria = malaria_under5 + malaria_over5)
+
+
+
+## Make wide dataset for malaria
+mundri_malaria_19_20_cl_wide <- mundri_malaria_19_20_cl %>% 
+  ## select the variables to keep
+  select(epiweek, site, malaria_under5, malaria_over5) %>% 
+  pivot_longer(cols = c("malaria_under5", "malaria_over5"),
+               names_to = "malaria_age",
+               values_to = "count")
+
+
+## Create dataset with moving averages
+mundri_malaria_19_20_ma <- mundri_malaria_19_20_cl %>% 
+  ## add 4 moving averages for malaria and malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving average variable (deals with missings)
+  mutate(ma_malaria_4wk = slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), .before = 3 ))
+  
+  
+
+```
+
+
+### Combine all wide datasets for malaria and the 4 week moving average
+
+```{r combine_all_awd_wide_data}
+## combine the various wide case datasets
+ssudan_malaria_wide <- bind_rows(mundri_malaria_19_20_cl_wide,
+                             unity_malaria_19_20_wide, 
+                             ben_lan_mal_wide )
+
+## combine the project specific 4 week moving average datasets
+ssudan_malaria_4ma <- bind_rows(mundri_malaria_19_20_ma, unity_malaria_19_20_ma,
+                            ben_lan_mal_ma)
+
+```
+
+
+
+## Respiratory failure
 - remove empty cols
 - create epiweek variable
 - add a year variable
@@ -603,7 +770,7 @@ bentiu_resp_mort_cl <- bentiu_resp_mort_raw %>%
 ```
 
 
-### ITFC data
+## ITFC data
 
 ```{r clean_itfc_data}
 
@@ -641,134 +808,10 @@ ben_lan_itfc_ma <- ben_lan_itfc_cl %>%
 ```
 
 
-### malaria Unity
-- create an epiweek variable
-- add a year variable
-- combine the 2019 and 2020 datasets
-- make a wide dataset based on the age variables
-
-```{r clean_malaria_unity}
-## Unity 2019
-## Add a site variable to each dataset
-unity_malaria_2019_cl <- unity_malaria_2019_raw %>%
-  mutate(site = "unity") %>% 
-  ## create a year variable
-  mutate(year = 2019) %>% 
-  ## create an epiweek variable as aweek object
-  mutate(epiweek2 = yearweek(
-    str_glue("{year}-W{epiweek}"))) 
-
-
-## Unity 2020
-## Add a site variable to each dataset
-unity_malaria_cl <- unity_malaria_raw %>%
-  mutate(site = "unity") %>% 
-  ## create a year variable
-  mutate(year = 2020) %>% 
-  ## create an epiweek variable as aweek object
-  mutate(epiweek2 = yearweek(
-    str_glue("{year}-W{epiweek}"))) %>% 
-  ## remove epiweeks beyond reporting week
-  filter(epiweek2 <= reporting_week)
-
-
-## make combined dataset
-unity_malaria_19_20_cl <- bind_rows(unity_malaria_2019_cl, unity_malaria_cl) %>% 
-  ## add total value of awd cases
-  mutate(all_malaria = under5 + over5)
-
-
-
-## Make wide dataset for malaria
-unity_malaria_19_20_wide <- unity_malaria_19_20_cl %>% 
-  ## select the variables to keep
-  select(epiweek2, site, under5, over5) %>% 
-  pivot_longer(cols = c("under5", "over5"),
-               names_to = "malaria_age",
-               values_to = "count")
-
-
-## Create dataset with moving averages
-unity_malaria_19_20_ma <- unity_malaria_19_20_cl %>% 
-  ## add 4 moving averages for malaria and malaria
-  ## make counts in to tsibble so it recognises weeks as main time var
-  as_tsibble(index = epiweek2, key = site) %>% 
-  group_by(site) %>% 
-  ## create a moving average variable (deals with missings)
-  mutate(ma_malaria_4wk = slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), .before = 3 ))
-  
-  
-
-```
-
-### malaria Mundri
-- create an epiweek variable
-- add a year variable
-- combine the datasets
-- make a wide dataset based on the age variables
-
-```{r clean_malaria_mundri}
-
-## Mundri 2019
-## Add a site variable to each dataset
-mundri_malaria_2019_cl <- mundri_mal_2019_raw %>%
-  mutate(site = "mundri") %>% 
-  ## create a year variable
-  mutate(year = 2019) %>% 
-  ## create an epiweek variable as aweek object
-  mutate(epiweek2 = yearweek(
-    str_glue("{year}-W{epiweek}"))) 
-
-
-
-## Mundri 2020
-## Add a site variable to each dataset
-mundri_malaria_cl <- mundri_mal_raw %>%
-  mutate(site = "mundri") %>% 
-  ## create a year variable
-  mutate(year = 2020) %>% 
-  ## create an epiweek variable as aweek object
-  mutate(epiweek2 = yearweek(
-    str_glue("{year}-W{epiweek}"))) %>% 
-  ## remove epiweeks beyond reporting week
-  filter(epiweek2 <= reporting_week) 
-
-
-# ## make combined dataset
-mundri_malaria_19_20_cl <- bind_rows(mundri_malaria_2019_cl, mundri_malaria_cl) %>% 
-  ## add total value of malaria cases
-  mutate(all_malaria = under5 + over5)
-
-
-
-## Make wide dataset for malaria
-mundri_malaria_19_20_cl_wide <- mundri_malaria_19_20_cl %>% 
-  ## select the variables to keep
-  select(epiweek2, site, under5, over5) %>% 
-  pivot_longer(cols = c("under5", "over5"),
-               names_to = "malaria_age",
-               values_to = "count")
-
-
-## Create dataset with moving averages
-mundri_malaria_19_20_cl_ma <- mundri_malaria_19_20_cl %>% 
-  ## add 4 moving averages for malaria and malaria
-  ## make counts in to tsibble so it recognises weeks as main time var
-  as_tsibble(index = epiweek2, key = site) %>% 
-  group_by(site) %>% 
-  ## create a moving average variable (deals with missings)
-  mutate(ma_malaria_4wk = slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), .before = 3 ))
-  
-  
-
-```
-
-
-### Cleaning of covid data
+## COVID data
 - add bentiu and lankien label values
 - add epiweek variable
 - add age group variable
-
 
 ```{r covid_data_cleaning}
 
@@ -828,9 +871,7 @@ covid_age_counts <- covid_data_cl %>%
 ```
 
 
-
-
-### Cleaning of mortality data
+## Mortality data
 We can combine the 2019 and 2020 data
 
 ```{r prep_mortality_data}
@@ -882,7 +923,7 @@ bentiu_last_current <- bentiu_last_current %>%
 ```
 
 
-## Cleaning of AJS data
+## AJS data
 - convert all variables to lower case
 - convert sn, epiweeek and age_y to integers
 - create block and is_in_sect variables to match with GIS data
@@ -930,7 +971,7 @@ ajs_poc_cl_grp <- ajs_poc_cl %>%
 
 ```
 
-## Apply data cleaning dictionary to AJS GIS data
+### Apply data cleaning dictionary to AJS GIS data
 
 ```{r ajs_gis_data_cleaning}
 
@@ -951,7 +992,7 @@ dictionary <- rio::import(here::here("6_data", "ajs", "dictionary_ssudan.xlsx"))
 ```
 
 
-## Cleaning of measles PoC data
+## Measles PoC data
 - remove those that tested negative for measles
 - convert all cases to lower case
 - convert date variables to dates
@@ -1078,11 +1119,11 @@ dictionary <- rio::import(here::here("6_data", "measles", "dictionary_ssudan.xls
 
 
 ## Results
-### COVID data analysis
+### COVID
 There has been a total of `r nrow(filter(covid_data_cl, msf_covid_status == "suspected"))` suspected  and `r nrow(filter(covid_data_cl, msf_covid_status == "confirmed"))` confirmed COVID-19 cases in Bentiu and Lankien reported. `r nrow(filter(covid_data_cl, msf_covid_status == "confirmed", site == "lankien" ))` confirmed cases in Lankien and `r nrow(filter(covid_data_cl, msf_covid_status == "confirmed", site == "bentiu"))` confirmed case in Bentiu Poc. There have been `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died"))` deaths among suspected and confirmed cases with `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "lankien"))` in Lankien and `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "bentiu"))` in Bentiu. There were a total of `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier))` suspected and confirmed cases in Bentiu and Lankien in `r two_weeks_earlier` and `r reporting_week`, with `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, site == "lankien"))` in Lankien and  `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, site == "bentiu"))` in Bentiu. There were `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, outcome_patcourse_status == "died"))` deaths reported during `r two_weeks_earlier` and `r reporting_week`.
 
 
-### Epicurve of suspected and confirmed COVID-19 cases
+#### Epicurve of suspected and confirmed COVID-19 cases
 ```{r epicurve_case_status_covid}
 
 
@@ -1109,7 +1150,7 @@ ggplot(covid_case_counts, aes(x = epiweek,
 
 ```
 
-### Epicurve of outcome of COVID-19 cases
+#### Epicurve of outcome of COVID-19 cases
 ```{r epicurve_outcome_covid}
 
 
@@ -1136,7 +1177,7 @@ ggplot(covid_outcome_counts, aes(x = epiweek,
 
 ```
 
-### Epicurve of COVID-19 cases by age group
+#### Epicurve of COVID-19 cases by age group
 ```{r epicurve_age_covid}
 
 
@@ -1165,7 +1206,7 @@ ggplot(covid_age_counts, aes(x = epiweek,
 ```
 
 
-## COVID-19 age_sex pyramid
+#### COVID-19 age_sex pyramid
 
 ```{r covid_age_sex_pyramid}
 
@@ -1186,7 +1227,7 @@ for (i in c("bentiu", "lankien")) {
 }
 ```
 
-## Bentiu mortality
+### Bentiu mortality
 The current four-week moving average is `r bentiu_last_current %>% filter(epiweek == reporting_week) %>% pull(four_week_roll)` cases per week.
 
 
@@ -1194,7 +1235,7 @@ The crude mortality rate for the total population between `r four_weeks_earlier`
 
 
 
-### Bentiu mortality figure with four week moving average
+#### Bentiu mortality figure with four week moving average
 
 ```{r bentiu_mortality_figure}
 ## Plot weeks vs deaths by year
@@ -1216,8 +1257,8 @@ ggplot(bentiu_last_current, aes(x = epiweek,
 
 ```
 
-## Respiratory failure
-### Respiratory failure epicurve
+### Respiratory failure
+#### Respiratory failure epicurve
 
 ```{r resp_failure_epicurve}
 
@@ -1240,9 +1281,9 @@ ggplot(bentiu_resp_mort_cl, aes(x = epiweek,
 ```
 
 
-## ITFC
+### ITFC
 
-### Bentiu and Lankien
+#### Bentiu and Lankien
 
 ```{r itfc_epicurve}
 
@@ -1310,85 +1351,39 @@ ggplot() +
 
 
 
-## Malaria
+### Malaria
 The current four-week moving average is `r ben_lan_awd_mal_ma %>% filter(epiweek == reporting_week, site == "bentiu") %>% pull(ma_mal_4wk)` cases per week in Bentiu and `r ben_lan_awd_mal_ma %>% filter(epiweek == reporting_week, site == "lankien") %>% pull(ma_mal_4wk)` cases per week in Lankien. `r four_weeks_earlier`, the four-week moving average was `r ben_lan_awd_mal_ma %>% filter(epiweek == four_weeks_earlier, site == "bentiu") %>% pull(ma_mal_4wk)`
 
-### Bentiu and Lankien
-```{r malaria_ben_lan_epicurve}
+#### Epicurve all projects
+```{r malaria_all_epicurve}
 ## Histogram with line with 4 weekly average
 ggplot() +
-  geom_col(data = ben_lan_mal_wide, 
+  geom_col(data = ssudan_malaria_wide, 
            aes(x = epiweek, 
                y = count, 
                fill = factor(malaria_age,
                              levels = c("malaria_under5", "malaria_over5"),
                              labels = c("<5 yrs", "5+ yrs")))) +
-   ## add four week moving average
-  geom_line(data = ben_lan_awd_mal_ma,
-            aes(x = epiweek,
-                y = ma_mal_4wk),
-            size = 1.2, colour = "black")  +
-   scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
-  ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  ## add four week moving average
+  geom_line(data = ssudan_malaria_4ma,
+            aes(x = epiweek, 
+                y = ma_malaria_4wk, colour = "Moving average"),
+            size = 1.2)  + 
+  ## adjust the date scale on the x axis
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ##create a legend for the 4 week moving average
+  scale_colour_manual( values = c("Moving average" = "black")) +
   ## facet by site
   facet_grid(. ~ site) +
   ## Add labels
   theme(plot.title = element_text(size = 14)) +
-  labs(title = "Weekly malaria cases in Bentiu PoC and Lankien \n with a four-week rolling average, 2019-2020",
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  labs(title = "Weekly malaria cases in Bentiu PoC, Lankien, Mundri and Unity with a four-week rolling average, 2019-2020",
        x = "Month",
-       y = "Number of malaria cases",
-       fill = "Age group")
-
-
-```
-
-### Unity malaria
-```{r malaria_unity_epicurve}
-
-ggplot() +
-  geom_col(data = unity_malaria_19_20_wide, aes(x = epiweek2, y = count, 
-                                           fill = factor(malaria_age,
-                             levels = c("under5", "over5"),
-                             labels = c("<5 yrs", "5+ yrs")))) +
-  ## add in rolling 4 weeks
-  geom_line(data = unity_malaria_19_20_ma, aes(x = epiweek2, 
-                                               y = ma_malaria_4wk),
-            size = 1.2, colour = "black") +
-  ## adjust the date breaks
-  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
-  ## adjust the plot title size
-  theme(plot.title = element_text(size = 14)) +
-  ## Add labels
-  labs(title = "Weekly malaria cases in Unity with a \nfour week rolling average, 2019-2020",
-       x = "Month",
-       y = "Number of malaria cases",
-       fill = "Age group")
-
-```
-
-
-### Mundri malaria
-```{r malaria_mundri_epicurve}
-
-ggplot() +
-  geom_col(data = mundri_malaria_19_20_cl_wide, aes(x = epiweek2, y = count, 
-                                          fill = factor(malaria_age,
-                             levels = c("under5", "over5"),
-                             labels = c("<5 yrs", "5+ yrs")))) +
-  ## add in rolling 4 weeks
-  geom_line(data = mundri_malaria_19_20_cl_ma, aes(x = epiweek2,
-                                             y = ma_malaria_4wk),
-            size = 1.2, colour = "black") +
-  ## adjust the date breaks
-  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
-  ## adjust the plot title size
-  theme(plot.title = element_text(size = 14)) +
-  ## Add labels
-  labs(title = "Weekly malaria cases in Mundri with a \nfour week rolling average, 2019-2020",
-       x = "Month",
-       y = "Number of malaria cases",
-       fill = "Age group")
+       y = "Number of AWD cases",
+       fill = "Age group",
+       colour = "")
 
 
 ```
