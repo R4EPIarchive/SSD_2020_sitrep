@@ -378,6 +378,8 @@ ben_lan_awd_mal <- bind_rows(bentiu_awd_mal_raw, lankien_awd_mal_raw) %>%
          awd_over5 = diarrhoea_acute_watery_ages_5y_2,
          malaria_under5 = malaria_ages_5y,
          malaria_over5 = malaria_ages_5y_2,
+         measles_ages_5y,
+         measles_ages_5y_2,
          site) %>% 
   ## create yearweek variable 
   mutate(epiweek = yearweek(year_week)) %>% 
@@ -1060,9 +1062,12 @@ measles_poc_cl <- measles_poc_raw %>%
 
 
 ## If no suspected cases in specific weeks, then add in manually
-zero_report <- data.frame(year = c(2020,2020),
-                          epiweek = yearweek(c("2020 W28", "2020 W29")),
-                          n = c(0,0))
+zero_report <- data.frame(year = c(2020,2020,2020,2020),
+                          epiweek = yearweek(c("2020 W28",
+                                               "2020 W29", 
+                                               "2020 W30", 
+                                               "2020 W31")),
+                          n = c(0,0,0,0))
 
 
 
@@ -1244,16 +1249,19 @@ ggplot(bentiu_last_current, aes(x = epiweek,
                                 fill = as.factor(year))) +
   geom_col( ) +
   ## add the four week average as a line
-  geom_line(aes(x = epiweek, y = four_week_roll), 
-            size = 1.2, colour = "black") +
+  geom_line(aes(x = epiweek, y = four_week_roll, colour = "moving average"), 
+            size = 1.2) +
   # adjus the x axis
   scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving average
+  scale_colour_manual(values = c("moving average" = "black")) +
   ## Add labels
   theme(plot.title = element_text(size = 16)) +
   labs(title = "Number of weekly deaths in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
        x = "Month",
        y = "Number of deaths",
-       fill = "Year")
+       fill = "Year",
+       colour = "")
 
 ```
 
@@ -1267,16 +1275,19 @@ ggplot(bentiu_resp_mort_cl, aes(x = epiweek,
                                 fill = as.factor(year))) +
   geom_col() +
   ## add 4 week moving average
-  geom_line(aes(x = epiweek, y = ma_resp_mort_4week),
-            size = 1.2, colour = "black") +
+  geom_line(aes(x = epiweek, y = ma_resp_mort_4week, colour = "moving average"),
+            size = 1.2) +
   ## adjust x axis breaks
   scale_x_yearweek(date_breaks = "2 month", date_labels = "%m-%y") +
+  ## add legend for moving average
+  scale_colour_manual(values = c("moving average" = "black")) +
   ## Add labels
   theme(plot.title = element_text(size = 16)) +
   labs(title = "Number of weekly respiratory deaths in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
        x = "Month",
        y = "Number of respiratory deaths",
-       fill = "Year")
+       fill = "Year",
+       colour = "")
 
 ```
 
@@ -1352,7 +1363,7 @@ ggplot() +
 
 
 ### Malaria
-The current four-week moving average is `r ben_lan_awd_mal_ma %>% filter(epiweek == reporting_week, site == "bentiu") %>% pull(ma_mal_4wk)` cases per week in Bentiu and `r ben_lan_awd_mal_ma %>% filter(epiweek == reporting_week, site == "lankien") %>% pull(ma_mal_4wk)` cases per week in Lankien. `r four_weeks_earlier`, the four-week moving average was `r ben_lan_awd_mal_ma %>% filter(epiweek == four_weeks_earlier, site == "bentiu") %>% pull(ma_mal_4wk)`
+The current four-week moving average is `r ben_lan_awd_mal_ma %>% filter(epiweek == reporting_week, site == "bentiu") %>% pull(ma_malaria_4wk)` cases per week in Bentiu and `r ben_lan_awd_mal_ma %>% filter(epiweek == reporting_week, site == "lankien") %>% pull(ma_malaria_4wk)` cases per week in Lankien. `r four_weeks_earlier`, the four-week moving average was `r ben_lan_awd_mal_ma %>% filter(epiweek == four_weeks_earlier, site == "bentiu") %>% pull(ma_malaria_4wk)` in Bentiu PoC in `r four_weeks_earlier`
 
 #### Epicurve all projects
 ```{r malaria_all_epicurve}
@@ -1411,17 +1422,20 @@ ggplot(ajs_poc_cl_grp, aes(x = epiweek2,
   geom_col( ) +
   ## add the four week average as a line
   geom_line(aes(x = epiweek2, 
-                y = four_week_roll), 
-            size = 1.2, colour = "black") +
+                y = four_week_roll, colour = "moving average"), 
+            size = 1.2) +
   ## add 3 month breaks and format the label
   scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving average
+  scale_colour_manual(values = c("moving average" = "black")) +
   ## Adjust size of plot title
   theme(plot.title = element_text(size = 14)) +
    ## Add labels
   labs(title = "Number of weekly AJS cases in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
        x = "Week",
        y = "Number of AJS cases",
-       fill = "Year")
+       fill = "Year",
+       colour = "")
 
 ```
 
@@ -1619,6 +1633,8 @@ There were a total of `r nrow(filter(measles_poc_cl, epiweek == reporting_week))
 
 The most affected age group since the start of the `r reporting_year` was `r tab_linelist(filter(measles_poc_cl, year == 2020), age_group) %>% slice(which.max(n)) %>% pull(value)` years.
 
+The last case of measles in Lankien was on `r ben_lan_awd_mal %>% filter(is.na(measles_ages_5y) == F | is.na(measles_ages_5y_2) == F, site == "lankien") %>% pull(max(epiweek))`.
+
 ### Measles Bentiu PoC epicurve
 
 
@@ -1630,16 +1646,19 @@ ggplot(measles_poc_cl_grp, aes(x = epiweek,
   geom_col() +
   ## add the four week average as a line
   geom_line(aes(x = epiweek, 
-                y = four_week_roll), 
-            size = 1.2, colour = "black") +
+                y = four_week_roll, colour = "moving average"), 
+            size = 1.2) +
   scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving average
+  scale_colour_manual(values = c("moving average" = "black")) +
   ## Adjust size of plot title
   theme(plot.title = element_text(size = 14)) +
   ## Add labels
   labs(title = "Weekly measles cases in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
        x = "Month",
        y = "Number of measles cases",
-       fill = "Year")
+       fill = "Year",
+       colour = "")
 
 ```
 
