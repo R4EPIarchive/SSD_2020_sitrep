@@ -70,6 +70,7 @@ required_packages <- c("knitr",       # create output docs
                        "tsibble",     # time series data
                        "slider",      # time series data
                        "tidyr",       # wide/long adjustements to data
+                       "gt",          # make nice tables
                        "patchwork")   # combining plots together
 
 for (pkg in required_packages) {
@@ -92,7 +93,7 @@ ggplot2::theme_set(theme_classic(base_size = 18))
 
 ## sets the theme in ggplot for epicurves
 epicurve_theme <- theme(
-  axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1), 
+  axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1), 
   legend.title = element_blank(),
   panel.grid.major.x = element_line(color = "grey60", linetype = 3),
   panel.grid.major.y = element_line(color = "grey60", linetype = 3))
@@ -115,7 +116,7 @@ Monday.
 
 ```{r define_current_week}
 ## set current week 
-reporting_week <- yearweek("2020 W31")
+reporting_week <- yearweek("2020 W33")
 
 ## set previous week
 two_weeks_earlier <- reporting_week -1 
@@ -132,6 +133,10 @@ reporting_year <- 2020
 
 ## set start of the year
 start_year <- yearweek("2020 W01")
+
+
+## Month of COVID-19 analysis
+reporting_month <- as.yearmon("2020-08")
 
 ```
 
@@ -208,11 +213,20 @@ lankien_itfc_raw <- rio::import(current_itfc_lankien,
 
 ## Respiratory failure  ------------------------------------------------------------------
 ### bentiu
-bentiu_resp_mort_raw <- rio::import(current_resp_failure, 
+bentiu_resp_mort_raw <- rio::import(current_resp_failure_bentiu, 
                               skip = 2,
                               which = "Bentiu Healthcare")  %>% 
   ## make all variable names lower case
   janitor::clean_names()
+
+### lankien
+lankien_resp_mort_raw <- rio::import(current_resp_failure_lankien, 
+                              skip = 2,
+                              which = "Jonglei Healthcare")  %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
 
 ``` 
 
@@ -376,6 +390,8 @@ lankien_awd_mal_raw <- lankien_awd_mal_raw %>%
 ben_lan_awd_mal <- bind_rows(bentiu_awd_mal_raw, lankien_awd_mal_raw) %>% 
   ## select awd and malaria columsn only 
   select(year_week = periodname,
+         opd_under5 = total_new_opd_consultations_ages_5y,
+         opd_over5  = total_new_opd_consultations_ages_5y_2,
          awd_under5 = diarrhoea_acute_watery_ages_5y,
          awd_over5 = diarrhoea_acute_watery_ages_5y_2,
          malaria_under5 = malaria_ages_5y,
@@ -390,6 +406,8 @@ ben_lan_awd_mal <- bind_rows(bentiu_awd_mal_raw, lankien_awd_mal_raw) %>%
   ## add up total awd and total malaria cases
   mutate(all_awd = awd_under5 + awd_over5,
          all_malaria = malaria_under5 + malaria_over5) %>% 
+  ## create a total consultations variable
+  mutate(total_opd_consultations = opd_under5 + opd_over5) %>% 
   ## only keep data up to reporting week
  filter(epiweek <= reporting_week)
 
@@ -750,24 +768,47 @@ ssudan_malaria_4ma <- bind_rows(mundri_malaria_19_20_ma, unity_malaria_19_20_ma,
 
 
 
-## Respiratory failure
+## Respiratory failure for Bentiu and Lankien
 - remove empty cols
 - create epiweek variable
 - add a year variable
-- add four week moving \naverage
+- add four week moving average
 
 ```{r clean_resp_failure}
-## clean resp mortality data
+## clean resp mortality data for bentiu
 bentiu_resp_mort_cl <- bentiu_resp_mort_raw %>% 
   ## remove empty cols
   janitor::remove_empty("cols") %>% 
   ## convert period to epiweek
   mutate(epiweek = yearweek(period)) %>% 
+  ## add a site variable
+  mutate(site = "bentiu") %>% 
   ## rename variable
   select(resp_failure = cause_of_death_category_rf_respiratory_failure,
-         epiweek) %>% 
+         epiweek, site) %>% 
   ## add a year variable
-  mutate(year = if_else(grepl("2019", epiweek), 2019, 2020)) %>% 
+  mutate(year = if_else(grepl("2019", epiweek), 2019, 2020)) 
+
+
+
+## Clean resp mortality data for lankien
+lankien_resp_mort_cl <- lankien_resp_mort_raw %>% 
+  ## remove empty cols
+  janitor::remove_empty("cols") %>% 
+  ## convert period to epiweek
+  mutate(epiweek = yearweek(period)) %>% 
+  ## add a site variable
+  mutate(site = "lankien") %>% 
+  ## rename variable
+  select(resp_failure = cause_of_death_category_rf_respiratory_failure,
+         epiweek, site) %>% 
+  ## add a year variable
+  mutate(year = if_else(grepl("2019", epiweek), 2019, 2020)) 
+
+
+## Combine bentiu and lankien data and create a 4 week moving average
+combined_resp_failure <- bind_rows(bentiu_resp_mort_cl, lankien_resp_mort_cl) %>% 
+  group_by(site) %>% 
   ## add 4 week moving \naverage
   mutate(ma_resp_mort_4week = slide_dbl(resp_failure, ~mean(.x, na.rm = TRUE), .before = 3 ))
  
@@ -824,7 +865,9 @@ bentiu_covid_raw <- bentiu_covid_raw %>%
 
 
 lankien_covid_raw <- lankien_covid_raw %>% 
-  mutate(site = "lankien")
+  mutate(site = "lankien") %>% 
+  ## remove the duplicate entry
+  filter(MSF_N_Patient != "CD61")
 
 ## combine bentiu and lankien
 covid_data_raw <- bind_rows(bentiu_covid_raw, lankien_covid_raw) %>% 
@@ -846,13 +889,15 @@ covid_data_cl <- covid_data_raw %>%
   )) %>% 
   ## create an age group group variable
   mutate(age_group = age_categories(age_years, 
-                                    breakers = c(0, 5, 15, 30, 45))) %>% 
+                                    breakers = c(0, 5, 15, 30, 90))) %>% 
   ## clean up the outcome_patcourse_other variable
   mutate(outcome_patcourse_status_other2 = case_when(
     grepl("home", outcome_patcourse_status_other) ~ "at home",
     grepl("hospital", outcome_patcourse_status_other) ~ "at the hospital",
     TRUE ~ outcome_patcourse_status_other
-  ))
+  )) %>% 
+  ## Add a month variable to the dataset
+  mutate(month = as.yearmon(report_date))
 
 
 ## make a count of cases by suspect and confirmed status per week by site
@@ -866,8 +911,10 @@ covid_case_counts <- covid_data_cl %>%
 ## make a count of case by outcome status
 covid_outcome_counts <- covid_data_cl %>% 
   ## clean up outcome_patcourse_status to take in sent home values from outcome_patcourse_status_other
+  ## where ctc room is mentioned in other, put as ctc room as main outcome rather than other
   mutate(outcome_patcourse_status2 = case_when(
     grepl("home", outcome_patcourse_status_other) ~ "sent back home",
+    grepl("ctc", outcome_patcourse_status_other) ~ "ctc room",
     TRUE ~ outcome_patcourse_status
   )) %>% 
   ## group by week, site, status
@@ -969,7 +1016,12 @@ ajs_poc_cl <- ajs_poc_raw %>%
     str_glue("{year}-W{epi_week}"))) %>% 
   ## create an age group variable
   mutate(age_group = age_categories(age_y, 
-                                   breakers = c(0, 5, 15, 30, 45)))
+                                   breakers = c(0, 5, 15, 30, 90))) %>% 
+  ## clean up the outcome variable
+  mutate(outcome = case_when(
+    pt_outcome %in% c("death", "died", "dead") ~ "dead",
+    TRUE ~ pt_outcome
+  ))
 
 
 
@@ -980,6 +1032,16 @@ ajs_poc_cl_grp <- ajs_poc_cl %>%
   tally() %>% 
   ## average the weekly values of ajs cases for previous 4 weeks
   mutate(four_week_roll = slide_dbl(n, ~mean(.x, na.rm = TRUE), .before = 3 ))
+
+
+## Count cases by year and week and outcome status
+ajs_poc_cl_outcome <- ajs_poc_cl %>% 
+  group_by(year, epiweek2, outcome) %>% 
+  ## count number of cases per year and week
+  tally() %>% 
+  ## average the weekly values of ajs cases for previous 4 weeks
+  mutate(four_week_roll = slide_dbl(n, ~mean(.x, na.rm = TRUE), .before = 3 ))
+
 
   
 
@@ -1057,7 +1119,7 @@ measles_poc_cl <- measles_poc_raw %>%
   )) %>% 
   ## create an age group variable
   mutate(age_group = age_categories(age_in_years2, 
-                                    breakers = c(0, 5, 15, 30, 45))) %>% 
+                                    breakers = c(0, 5, 15, 30, 90))) %>% 
   ## create an epiweek variable from date admission
   mutate(epiweek = yearweek(date_admission)) %>% 
   ## fix the year error where epiweek is 2020-W01
@@ -1078,8 +1140,10 @@ zero_report <- data.frame(year = c(2020,2020,2020,2020),
                           epiweek = yearweek(c("2020 W28",
                                                "2020 W29", 
                                                "2020 W30", 
-                                               "2020 W31")),
-                          n = c(0,0,0,0))
+                                               "2020 W31",
+                                               "2020 W32",
+                                               "2020 W33")),
+                          n = c(0,0,0,0,0,0))
 
 
 
@@ -1110,8 +1174,6 @@ measles_poc_cl_age_grp  <- measles_poc_cl %>%
   tally() 
   
   
-
-
 ```
 
 ## Apply data cleaning dictionary to measles GIS data
@@ -1153,7 +1215,7 @@ covid_cases_epicurve <- ggplot(covid_case_counts, aes(x = epiweek,
   facet_grid( . ~ site) +
   theme(plot.title = element_text(size = 14)) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   ## Add labels
   labs(title = "Number of weekly suspected and confirmed COVID-19 \ncases in Bentiu PoC and Lankien, 2020",
        x = "Week",
@@ -1176,7 +1238,7 @@ ggplot(covid_outcome_counts, aes(x = epiweek,
   facet_grid( . ~ site) +
   theme(plot.title = element_text(size = 14)) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   ## Add labels
   labs(title = "Number of weekly suspected and confirmed cases\n by outcome status in Bentiu PoC and Lankien, 2020",
        x = "Week",
@@ -1228,8 +1290,9 @@ tab_linelist(covid_data_cl,
   ## remove the variable variable
   select(-variable) %>% 
   ## Round up proportion value
-  
-  mutate(proportion = round(proportion, digits = 0)) %>% 
+  mutate(proportion = round(proportion, digits = 0)) %>%
+  ## rename the value variable
+  rename("Other outcome" = value) %>% 
   gt::gt()
 
 ```
@@ -1251,7 +1314,7 @@ covid_age_epicurve <- ggplot(covid_age_counts, aes(x = epiweek,
   # adjust size of plot title
   theme(plot.title = element_text(size = 14)) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   ## Add labels
   labs(title = "Number of weekly suspected and confirmed cases\n in Bentiu PoC and Lankien by age group, 2020",
        x = "Week",
@@ -1287,11 +1350,179 @@ for (i in c("bentiu", "lankien")) {
         legend.title = element_blank(), # remove title
         text = element_text(size = 18),  # change text size
         plot.title = element_text(size = 14)) +
-   ggtitle(paste0("Age-sex pyramid of suspected and confirmed COVID-19 cases in ", i))
+   ggtitle(paste0("Age-sex pyramid of suspected and confirmed COVID-19 \ncases in ", i))
    
   print(age_sex)
 }
 ```
+
+#### HIV status of cases
+
+```{r hiv_cases}
+
+tab_linelist(covid_data_cl, 
+             msf_hiv_status, 
+             strata = "site", 
+             ) %>% 
+  ## remove the variable variable
+  select(-variable) %>% 
+  ## rename the value
+  rename("HIV status" = value) %>% 
+  gt::gt()
+
+
+```
+
+#### TB status of cases
+
+```{r tb_cases}
+
+tab_linelist(covid_data_cl, 
+             msf_tb_active, 
+             strata = "site", 
+             ) %>% 
+  ## remove the variable variable
+  select(-variable) %>% 
+  ## rename the value
+  rename("Active TB" = value) %>% 
+  gt::gt()
+
+
+```
+
+
+#### Other comorbidity status of cases
+
+```{r other_comorb_cases}
+
+tab_linelist(covid_data_cl, 
+             comcond_other, 
+             strata = "site", 
+             ) %>% 
+  ## remove the variable variable
+  select(-variable) %>% 
+  ## rename the value
+  rename("Other comborbidity" = value) %>% 
+  gt::gt()
+
+
+```
+
+
+#### HIV status among dead
+
+```{r hiv_deaths}
+
+tab_linelist(covid_deaths, 
+             msf_hiv_status, 
+             strata = "site", 
+             ) %>% 
+  ## remove the variable variable
+  select(-variable) %>% 
+  ## rename the value
+  rename("HIV status" = value) %>% 
+  gt::gt()
+
+
+```
+
+#### TB status among dead
+
+```{r tb_deaths}
+
+tab_linelist(covid_deaths, 
+             msf_tb_active, 
+             strata = "site", 
+             ) %>% 
+  ## remove the variable variable
+  select(-variable) %>% 
+  ## rename the value
+  rename("Active TB" = value) %>% 
+  gt::gt()
+
+
+```
+
+#### Other comorbidity status among dead
+
+```{r other_comorb_dead}
+
+tab_linelist(covid_deaths, 
+             comcond_other, 
+             strata = "site", 
+             ) %>% 
+  ## remove the variable variable
+  select(-variable) %>% 
+  ## rename the value
+  rename("Other comborbidity" = value) %>% 
+  gt::gt()
+
+
+```
+
+#### Data for OCA monthly report
+
+```{r covid_summary_table}
+
+## Create the current month dataset
+current_covid_monthly_report <- covid_data_cl %>% 
+  filter(month == reporting_month)
+
+
+## No. of confirmed/suspected cases
+cases_monthly <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only need the site variable
+  select(site) %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+
+## treated with oxygen
+treated_oxygen <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only keep those that received oxygen
+  filter(msf_received_oxygen == "yes") %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+
+  
+## deaths
+current_deaths <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only keep those that died
+  filter(outcome_patcourse_status == "died") %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+  
+
+## Number of tests conducted
+current_tests <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only keep those with a lab result
+  filter(is.na(outcome_lab_result) == F) %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+  
+## number of msf staff among cases
+current_staff_cases <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  tab_linelist(msf_job)
+
+
+```
+
+
+
+
 
 ### Bentiu mortality
 The current four-week moving average is `r bentiu_last_current %>% filter(epiweek == reporting_week) %>% pull(four_week_roll)` cases per week.
@@ -1327,11 +1558,11 @@ ggplot(bentiu_last_current, aes(x = epiweek,
 ```
 
 ### Respiratory failure
-#### Respiratory failure epicurve
+#### Respiratory failure epicurve- Bentiu and Lankien
 
 ```{r resp_failure_epicurve}
 
-ggplot(bentiu_resp_mort_cl, aes(x = epiweek, 
+ggplot(combined_resp_failure, aes(x = epiweek, 
                                 y = resp_failure,
                                 fill = as.factor(year))) +
   geom_col() +
@@ -1343,10 +1574,12 @@ ggplot(bentiu_resp_mort_cl, aes(x = epiweek,
   ## add legend for moving \naverage
   scale_colour_manual(values = c("moving \naverage" = "black")) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  ## separate graphs by site
+  facet_grid(. ~ site) +
   ## Add labels
   theme(plot.title = element_text(size = 16)) +
-  labs(title = "Number of weekly respiratory deaths in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
+  labs(title = "Number of weekly respiratory deaths in Bentiu PoC and Lankien \nwith a four-week rolling average, 2019-2020",
        x = "Month",
        y = "Number of respiratory deaths",
        fill = "Year",
@@ -1376,7 +1609,7 @@ ggplot(ben_lan_itfc_ma, aes(x = epiweek,
   ## reduce size of title text
   theme(plot.title = element_text(size = 14)) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   ## Add labels
   labs(title = "Number of weekly ITFC admissions in Bentiu PoC and Lankien \nwith a four-week rolling average, 2019-2020",
        x = "Month",
@@ -1416,7 +1649,7 @@ ggplot() +
   ## Add labels
   theme(plot.title = element_text(size = 14)) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   labs(title = "Weekly AWD cases in Bentiu PoC, Lankien, Mundri and Unity with a \nfour-week rolling average, 2019-2020",
        x = "Month",
        y = "Number of AWD cases",
@@ -1452,7 +1685,7 @@ ggplot() +
   ## Add labels
   theme(plot.title = element_text(size = 14)) +
   ## rotate x axis text
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   labs(title = "Weekly malaria cases in Bentiu PoC, Lankien, Mundri and Unity with a \n four-week rolling average, 2019-2020",
        x = "Month",
        y = "Number of malaria cases",
@@ -1498,6 +1731,33 @@ ggplot(ajs_poc_cl_grp, aes(x = epiweek2,
        x = "Week",
        y = "Number of AJS cases",
        fill = "Year",
+       colour = "")
+
+```
+
+
+### AJS epicurve- outcome
+```{r bentiu_ajs_epicurve_outcome}
+
+## AJS epicurve
+## Plot weeks vs AJS cases by pt_outcome
+ggplot(ajs_poc_cl_outcome, aes(x = epiweek2, 
+                           y = n, 
+                                fill = factor(outcome, level = c("recovery", "dead")))) +
+  geom_col( ) +
+  ## add 3 month breaks and format the label
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## change colours for the fill
+  scale_fill_viridis_d() +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+   ## Add labels
+  labs(title = "Number of weekly AJS cases in Bentiu PoC by outcome status, 2019-2020",
+       x = "Week",
+       y = "Number of AJS cases",
+       fill = "Outcome",
        colour = "")
 
 ```
@@ -1609,7 +1869,7 @@ ajs_map_bentiu_21 <- ggplot() +
   geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34), angle = 10, hjust =  0.8) +
   geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339, angle = -70, hjust = 1, vjust =  0.7)) +
   geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, angle = -70, hjust = 1, vjust = - 0.1)) +
-  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.45)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.90)) +
   # remove coordinates and axes
   theme_void() +
   labs(fill = "No. of cases",
@@ -1674,7 +1934,7 @@ ajs_map_bentiu_2020 <- ggplot() +
   geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34), angle = 10, hjust =  0.8) +
   geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339, angle = -70, hjust = 1, vjust =  0.7)) +
   geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, angle = -70, hjust = 1, vjust = - 0.1)) +
-  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.45)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.90)) +
   # remove coordinates and axes
   theme_void() +
   labs(fill = "No. of cases",
@@ -1824,7 +2084,7 @@ measles_map_bentiu_21 <- ggplot() +
   geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34), angle = 10, hjust =  0.8) +
   geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339, angle = -70, hjust = 1, vjust =  0.7)) +
   geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, angle = -70, hjust = 1, vjust = - 0.1)) +
-  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.45)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, angle = -70, hjust = 1, vjust = - 0.90)) +
   # remove coordinates and axes
   theme_void() +
   labs(fill = "No. of cases",
@@ -1906,7 +2166,7 @@ measles_map_bentiu_2020  <- ggplot() +
   geom_text(data = data.frame(), 
             aes(label = 'Sector 5',
                 x = 29.8025, y = 9.33,
-                angle = -70, hjust = 1, vjust = - 0.45)) +
+                angle = -70, hjust = 1, vjust = - 0.90)) +
   # remove coordinates and axes
   theme_void() +
   labs(fill = "No. of cases",
