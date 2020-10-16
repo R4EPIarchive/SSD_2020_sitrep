@@ -1,0 +1,2653 @@
+---
+title: "Internal MSF OCA South Sudan Mission Epi Biweekly SitRep"
+output:
+  html_document:
+    df_print: paged
+  word_document:
+    keep_md: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+
+<!-- ## Installing and loading required packages  -->
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// setup \\\
+--------------------------------------------------------------------------------
+
+Several packages are required for different aspects of  analysis with *R*. 
+You will need to install these before starting. 
+
+These packages can be quite large and may take a while to download in the
+field. If you have access to a USB key with these packages, it makes sense to
+copy and paste the packages into your computer's R package library 
+(run the command .libPaths() to see the folder path). 
+
+For help installing packages, please visit https://r4epis.netlify.com/welcome
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+
+```{r setup, include=FALSE, results='hide', message=FALSE, warning=FALSE}
+## hide all code chunks in the output, but show errors
+knitr::opts_chunk$set(echo = FALSE,       # hide all code chunks in output
+                      error = TRUE,       # show errors if they appear, but don't stop
+                      fig.width = 6*1.25, # Figure width
+                      fig.height = 6,      # Figure height
+                      warning = FALSE,
+                      message = FALSE
+                     )
+
+
+
+## set default NA to - in output, define figure width/height
+options(knitr.kable.NA = "-")
+
+
+
+## Installing required packages for this template
+required_packages <- c("knitr",       # create output docs
+                       "here",        # find your files
+                       "dplyr",       # clean/shape data
+                       "forcats",     # clean/shape data
+                       "stringr",     # clean text
+                       "rio",         # read in data
+                       "ggplot2",     # create plots and charts
+                       "patchwork",   # combine plots in one
+                       "sitrep",      # MSF field epi functions
+                       "linelist",    # Functions for cleaning/standardising data/dates
+                       "matchmaker",  # dictionary-based standardization of variables
+                       "incidence",   # create epicurves
+                       "aweek",       # define epi weeks
+                       "epitrix",     # epi helpers and tricks
+                       "sf",          # encode spatial vector data
+                       "ggspatial",   # plot maps
+                       "xts",         # moving \naverages
+                       "zoo",         # moving \naverages
+                       "classInt",    # specifying breaks for maps
+                       "excel.link",  # opening password protected files
+                       "askpass",     # opening password protected files
+                       "tsibble",     # time series data
+                       "slider",      # time series data
+                       "tidyr",       # wide/long adjustements to data
+                       "gt",          # make nice tables
+                       "data.table",   # for taking last and first values from dataframes
+                       "patchwork")   # combining plots together
+
+for (pkg in required_packages) {
+  # install packages if not already present
+  if (!pkg %in% rownames(installed.packages())) {
+    install.packages(pkg)
+  }
+  
+  # load packages to this current session 
+  library(pkg, character.only = TRUE)
+}
+
+
+
+## Set default options for plots and charts
+
+## set default text size to 16 for plots
+## give classic black/white axes for plots
+ggplot2::theme_set(theme_classic(base_size = 18))
+
+## sets the theme in ggplot for epicurves
+epicurve_theme <- theme(
+  axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1), 
+  legend.title = element_blank(),
+  panel.grid.major.x = element_line(color = "grey60", linetype = 3),
+  panel.grid.major.y = element_line(color = "grey60", linetype = 3))
+```
+
+
+
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// define_current_week \\\
+--------------------------------------------------------------------------------
+
+You need to set the week you want to report on. Generally, this is the previous
+week. Put it below.
+
+aweek::set_week_start will define the beginning of the week. The standard is
+Monday.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+<!-- **This section will need to be updated weekly** -->
+
+```{r define_current_week}
+## set current week 
+reporting_week <- yearweek("2020 W39")
+
+## Set same reporting week last year
+reporting_week_last_year <- yearweek("2019 W39")
+
+## set previous week
+two_weeks_earlier <- reporting_week -1 
+
+## set three weeks earlier
+three_weeks_earlier <- reporting_week -2
+
+## set four weeks earlier
+four_weeks_earlier <- reporting_week -3
+
+## set reporting year
+reporting_year <- 2020
+
+## set previous reporting year
+reporting_last_year <- 2019
+
+## set start of the year
+start_year <- yearweek("2020 W01")
+
+## set start of last year
+start_last_year <- yearweek("2019 W01")
+
+
+## Month of COVID-19 analysis
+reporting_month <- as.yearmon("2020-08")
+
+```
+
+Data as reported by `r reporting_week` and the data on outbreak prone diseases comes primarily from OPD data but also CBMC sites for diseases such as malaria and AWD.
+
+<!-- ## Source R function required to import MSF data from OPD tools -->
+
+```{r read_msf_data_function}
+
+source(here::here("8_functions/read_msf_data.R"))
+
+source(here::here("8_functions/aaa_get_latest_data.R"))
+
+source(here::here("8_functions/aaa_file_name_helpers.R"))
+
+source(here::here("8_functions/current_data.R"))
+```
+
+
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// read_DHIS_data \\\
+--------------------------------------------------------------------------------
+This section is for the following datasets
+1. ITFC data from Bentiu and Lankien
+2. AWD data from Bentiu and Lankien
+3. Malaria data from Bentiu and Lankien
+4. Respiratory failure in Bentiu PoC
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+```{r read_DHIS_data, warning = FALSE, message = FALSE}
+### Read in data ---------------------------------------------------------------
+
+## AWD/malaria ------------------------------------------------------------------
+### bentiu
+bentiu_awd_mal_raw <- rio::import(current_raw_awd_malaria_bentiu, 
+                             skip = 2,
+                              which = "Bentiu Healthcare") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+  
+
+###lankien
+lankien_awd_mal_raw <- rio::import(current_raw_awd_malaria_lankien, 
+                              skip = 2,
+                              which = "Jonglei Healthcare") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## ITFC/Nutrition  ------------------------------------------------------------------
+### bentiu
+bentiu_itfc_raw <- rio::import(current_itfc_bentiu, 
+                              which = "Bentiu Healthcare",
+                              skip = 2)  %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+###lankien
+lankien_itfc_raw <- rio::import(current_itfc_lankien, 
+                              which = "Jonglei Healthcare",
+                              skip = 2) %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+## unity and mundri
+unity_mundri_nutrition_raw <- rio::import(current_nutrition_unity_mundri,
+                                          which = "Sheet1") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## Respiratory failure  ------------------------------------------------------------------
+### bentiu
+bentiu_resp_mort_raw <- rio::import(current_resp_failure_bentiu, 
+                              skip = 2,
+                              which = "Bentiu Healthcare")  %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+### lankien
+lankien_resp_mort_raw <- rio::import(current_resp_failure_lankien, 
+                              skip = 2,
+                              which = "Jonglei Healthcare")  %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+
+``` 
+
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// read_nonDHIS_data \\\
+--------------------------------------------------------------------------------
+
+This section is for data not from DHIS2.
+The following data will be included under non-DHIS2 data
+1. COVID-19 linelists from Bentiu and Lankien
+2. Mortality linelist from Bentiu PoC
+3. Malnutrition data from Mundri and Unity Excel tools
+4. AWD data from Mundri and Unity Excel tools
+5. Malaria data from Mundri and Unity Excel tools
+6. AJS linelist from Bentiu and Lankien
+7. Measles linelist from Bentiu and from Mundri and Unity Excel tools
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+```{r read_nonDHIS_data, warning = FALSE, message = FALSE}
+
+## COVID data ------------------------------------------------------------------
+## Bentiu
+bentiu_covid_raw  <- rio::import(current_covid_bentiu,
+                                  which = "linelist")
+                                   
+## Lankien
+lankien_covid_raw  <- rio::import(current_covid_lankien,
+                                  which = "linelist")       
+
+## Leer 
+leer_covid_raw <- rio::import(current_covid_leer,
+                              which = "linelist")
+
+                                   
+## Mortality ------------------------------------------------
+## Bentiu PoC
+## 2019
+bentiu_mort_2019_raw <- rio::import(raw_mortality_bentiu_2019,
+                                    skip = 2, 
+                                    which = "Mortality rate") %>% 
+  ## make all variable names lower case
+  janitor::clean_names() %>% 
+  ## remove empty rows
+  janitor::remove_empty("rows")
+
+
+## Bentiu PoC Mortality
+## current reporting week data
+bentiu_mort_current_raw <- rio::import(current_raw_mortality_bentiu, 
+                                       skip = 2,
+                                       which = "Mortality rate") %>% 
+  ## make all variable names lower case
+  janitor::clean_names() %>% 
+  ## remove empty rows
+  janitor::remove_empty("rows")
+
+
+
+
+## Bentiu POC AJS  ----------------------------------------------------
+ajs_poc_raw <- rio::import(current_raw_ajs_bentiu,
+                           skip = 3,
+                           which = "AJS") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()  %>% 
+  ## remove empty rows and columns
+  janitor::remove_empty(c("rows", "cols")) %>% 
+  ##remove first row
+  slice(-1)
+
+
+## Bentiu POC Measles  ----------------------------------------------------
+
+measles_poc_raw <- rio::import(current_raw_measles_bentiu,
+                           which = "Measles Line List 2020") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()  %>% 
+  ## remove empty rows and columns
+  janitor::remove_empty(c("rows", "cols")) 
+
+
+## Excel tools ------------------------------------------------
+## Unity AWD
+### 2019
+unity_awd_2019_raw <- rio::import(raw_awd_unity_2019, 
+                              which = "Sheet1") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## 2020
+unity_awd_raw <- rio::import(current_raw_awd_unity, 
+                              which = "Sheet1") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## Mundri AWD
+### 2019
+mundri_awd_2019_opd_raw <- rio::import(raw_awd_mundri_2019,
+                              which = "opd") %>%
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+mundri_awd_2019_cbmc_raw <- rio::import(raw_awd_mundri_2019,
+                              which = "cbmc") %>%
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## 2020
+mundri_awd_opd_raw <- rio::import(current_raw_awd_mundri, 
+                              which = "opd") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+mundri_awd_cbmc_raw <- rio::import(current_raw_awd_mundri, 
+                              which = "cbmc") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+## Malaria
+## Unity Malaria
+### 2019
+unity_malaria_2019_raw <- rio::import(raw_malaria_unity_2019, 
+                              which = "Sheet1") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## 2020
+unity_malaria_raw <- rio::import(current_raw_malaria_unity, 
+                              which = "Sheet1") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## Mundri malaria
+### 2019
+mundri_mal_2019_opd_raw <- rio::import(raw_malaria_mundri_2019,
+                              which = "opd") %>%
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+mundri_mal_2019_cbmc_raw <- rio::import(raw_malaria_mundri_2019,
+                              which = "cbmc") %>%
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+## 2020
+mundri_mal_opd_raw <- rio::import(current_raw_malaria_mundri, 
+                              which = "opd") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+mundri_mal_cbmc_raw <- rio::import(current_raw_malaria_mundri, 
+                              which = "cbmc") %>% 
+  ## make all variable names lower case
+  janitor::clean_names()
+
+
+```
+
+
+<!-- ## AWD -->
+<!-- ### Bentiu and Lankien -->
+<!-- - Add a site variable to both datasets -->
+<!-- - combine both datasets -->
+<!-- - select awd and malaria variables -->
+<!-- - add under5 and over 5 data -->
+
+
+```{r awd_malaria_bentiu_lankien}
+## Add site variable
+## bentiu
+bentiu_awd_mal_raw <- bentiu_awd_mal_raw %>% 
+  mutate(site ="bentiu") %>% 
+  mutate(iccm_acute_watery_diarrhoea_ages_5y = 0,
+         iccm_acute_watery_diarrhoea_ages_5y_2 = 0)
+
+### lankien
+lankien_awd_mal_raw <- lankien_awd_mal_raw %>% 
+  mutate(site = "lankien")
+
+
+## Combine bentiu and lankien data
+ben_lan_awd_mal <- bind_rows(bentiu_awd_mal_raw, lankien_awd_mal_raw) %>% 
+  ## select awd and malaria columsn only 
+  select(year_week = periodname,
+         opd_under5 = total_new_opd_consultations_ages_5y,
+         opd_over5  = total_new_opd_consultations_ages_5y_2,
+         awd_under5 = diarrhoea_acute_watery_ages_5y,
+         awd_over5 = diarrhoea_acute_watery_ages_5y_2,
+         malaria_under5 = malaria_ages_5y,
+         malaria_over5 = malaria_ages_5y_2,
+         measles_ages_5y,
+         measles_ages_5y_2,
+         acute_jaundice_syndrome_ages_5y,
+         acute_jaundice_syndrome_ages_5y_2,
+         iccm_rdt_positive_falciparum_ages_5y,
+         iccm_rdt_positive_falciparum_ages_5y_2,
+         iccm_acute_watery_diarrhoea_ages_5y,
+         iccm_acute_watery_diarrhoea_ages_5y_2,
+         site) %>% 
+  ## create yearweek variable 
+  mutate(epiweek = yearweek(year_week)) %>% 
+  rowwise() %>% 
+  ## add up total awd and total malaria cases
+  mutate(all_awd = sum(awd_under5, awd_over5,
+                       iccm_acute_watery_diarrhoea_ages_5y, 
+                       iccm_acute_watery_diarrhoea_ages_5y_2, 
+                       na.rm = TRUE),
+         iccm_awd = sum(iccm_acute_watery_diarrhoea_ages_5y,
+                        iccm_acute_watery_diarrhoea_ages_5y_2, 
+                        na.rm = TRUE),
+         all_awd_under5 = sum(awd_under5, iccm_acute_watery_diarrhoea_ages_5y, 
+                              na.rm = TRUE),
+         all_awd_over5 = sum(awd_over5, iccm_acute_watery_diarrhoea_ages_5y_2,
+                             na.rm = TRUE),
+         all_malaria = sum(malaria_under5, malaria_over5, 
+                           iccm_rdt_positive_falciparum_ages_5y,
+                           iccm_rdt_positive_falciparum_ages_5y_2, na.rm = TRUE),
+         all_malaria_under5 = sum(malaria_under5, 
+                                  iccm_rdt_positive_falciparum_ages_5y, na.rm = TRUE),
+         all_malaria_over5 = sum(malaria_over5,
+                                 iccm_rdt_positive_falciparum_ages_5y_2, na.rm = TRUE),
+         opd_malaria = sum(malaria_under5, malaria_over5, na.rm = TRUE),
+         iccm_malaria = sum(iccm_rdt_positive_falciparum_ages_5y, 
+                            iccm_rdt_positive_falciparum_ages_5y_2, na.rm = TRUE)) %>% 
+  ## create a total consultations variable
+  mutate(total_opd_consultations = opd_under5 + opd_over5) %>% 
+  ## only keep data up to reporting week
+  filter(epiweek <= reporting_week)
+
+
+## Make wide dataset for awd
+ben_lan_awd_wide <- ben_lan_awd_mal %>% 
+  ## select the variables to keep
+  select(epiweek, site, all_awd_under5, all_awd_over5) %>% 
+  pivot_longer(cols = c("all_awd_under5", "all_awd_over5"),
+               names_to = "awd_age",
+               values_to = "count")
+
+
+## create a dataset for the 4 week moving \naverage
+ben_lan_awd_19_20_ma <- ben_lan_awd_mal %>% 
+  ##select variables of interest
+  select(epiweek, site, all_awd) %>% 
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_awd_4wk = round(slide_dbl(all_awd, ~mean(.x, na.rm = TRUE), 
+                                      .before = 3 ), digits = 0))
+
+```
+
+
+
+
+<!-- ### unity -->
+
+```{r awd_unity}
+## Unity 2019
+## Add a site variable to each dataset
+unity_awd_2019_cl <- unity_awd_2019_raw %>%
+  mutate(site = "unity") %>% 
+  ## create a year variable
+  mutate(year = 2019) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         awd_under5 = under5,
+         awd_over5 = over5,
+         site,
+         year)
+
+
+## Unity 2020
+## Add a site variable to each dataset
+unity_awd_cl <- unity_awd_raw %>%
+  mutate(site = "unity") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+    ## select variables of interest and relabel
+  select(epiweek, 
+         awd_under5 = under5,
+         awd_over5 = over5,
+         site,
+         year)
+
+
+## make combined dataset
+unity_awd_19_20_cl <- bind_rows(unity_awd_2019_cl, unity_awd_cl) %>% 
+  ## add total value of awd cases
+  mutate(all_awd = awd_under5 + awd_over5)
+
+
+## Make wide dataset for malaria
+unity_awd_19_20_wide <- unity_awd_19_20_cl %>% 
+  ## rename awd columns to match bentiu/lankien dataset
+  rename(all_awd_under5 = awd_under5,
+         all_awd_over5 = awd_over5) %>% 
+  ## select the variables to keep
+  select(epiweek, site, all_awd_under5, all_awd_over5) %>% 
+  pivot_longer(cols = c("all_awd_under5", "all_awd_over5"),
+               names_to = "awd_age",
+               values_to = "count")
+
+## create a dataset for the 4 week moving \naverage
+unity_awd_19_20_ma <- unity_awd_19_20_cl %>% 
+  ##select variables of interest
+  select(epiweek, site, all_awd) %>% 
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_awd_4wk = round(slide_dbl(all_awd, ~mean(.x, na.rm = TRUE),
+                                      .before = 3 ), digits  = 0))
+
+```
+
+
+<!-- ### Mundri -->
+
+```{r awd_mundri}
+## Mundri 2019
+## OPD
+mundri_awd_2019_opd_cl <- mundri_awd_2019_opd_raw  %>%
+  mutate(site = "mundri") %>%
+  ## create a year variable
+  mutate(year = 2019) %>%
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>%
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>%
+  ## select variables of interest and relabel
+  select(epiweek,
+         under5,
+         over5,
+         site,
+         year)
+
+
+# ## cbmc
+mundri_awd_2019_cbmc_cl <- mundri_awd_2019_cbmc_raw %>%
+  mutate(site = "mundri") %>%
+  ## create a year variable
+  mutate(year = 2019) %>%
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>%
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>%
+  ## select variables of interest and relabel
+  select(epiweek,
+         cbmc_awd_under5 = under5,
+         cbmc_awd_over5 = over5
+         )
+
+
+
+### join the 2019 OPD and CBMC datsets
+ mundri_awd_2019_opd_cbmc_cl <- mundri_awd_2019_opd_cl %>%
+   left_join(mundri_awd_2019_cbmc_cl, by = "epiweek") %>%
+   ## add total value of awd cases by age group
+   mutate(all_awd_under5 = under5 + cbmc_awd_under5,
+          all_awd_over5 = over5 + cbmc_awd_over5) %>%
+   ## add total value of awd cases
+  mutate(all_awd = all_awd_under5 + all_awd_over5) %>%
+  ## select variables of interest
+  select(epiweek, site, all_awd_under5, all_awd_over5, all_awd)
+
+
+## Mundri 2020
+## OPD
+mundri_awd_opd_cl <- mundri_awd_opd_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{week}"))) %>% 
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         under5,
+         over5,
+         site,
+         year)
+
+
+## cbmc
+mundri_awd_cbmc_cl <- mundri_awd_cbmc_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{week}"))) %>%  
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         cbmc_awd_under5 = under5,
+         cbmc_awd_over5 = over5
+         )
+
+
+
+### join the 2020 OPD and CBMC datsets
+mundri_awd_opd_cbmc_cl <- mundri_awd_opd_cl %>% 
+  left_join(mundri_awd_cbmc_cl, by = "epiweek") %>% 
+  ## add total value of awd cases by age group
+  mutate(all_awd_under5 = under5 + cbmc_awd_under5,
+         all_awd_over5 = over5 + cbmc_awd_over5) %>% 
+  ## add total value of awd cases
+  mutate(all_awd = all_awd_under5 + all_awd_over5) %>% 
+  ## select variables of interest
+  select(epiweek, site, all_awd_under5, all_awd_over5, all_awd)
+
+
+## Join 2019 and 2020 datasets
+ mundri_awd_opd_cbmc_19_20_cl <- bind_rows(mundri_awd_2019_opd_cbmc_cl,
+                                           mundri_awd_opd_cbmc_cl)
+ 
+
+
+## Make wide dataset for malaria
+mundri_awd_opd_cbmc_19_20_cl_wide <-  mundri_awd_opd_cbmc_19_20_cl %>%
+  ## select the variables to keep
+  select(epiweek, site, all_awd_under5, all_awd_over5) %>%
+  pivot_longer(cols = c("all_awd_under5", "all_awd_over5"),
+               names_to = "awd_age",
+               values_to = "count")
+
+
+
+
+
+## create a dataset for the 4 week moving \naverage
+mundri_awd_opd_cbmc_19_20_ma <- mundri_awd_opd_cbmc_19_20_cl %>%
+  ##select variables of interest
+  select(epiweek, site, all_awd) %>%
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>%
+  group_by(site) %>%
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_awd_4wk = round(slide_dbl(all_awd, ~mean(.x, na.rm = TRUE),
+                                      .before = 3 ), digits = 0))
+  
+
+```
+
+
+<!-- ### Combine all wide datasets for AWD and the 4 week moving average -->
+
+```{r combine_all_awd_wide_data}
+## combine the various wide case datasets
+ssudan_awd_wide <- bind_rows(mundri_awd_opd_cbmc_19_20_cl_wide,
+                             unity_awd_19_20_wide, 
+                             ben_lan_awd_wide )
+
+## combine the project specific 4 week moving \naverage datasets
+ssudan_awd_4ma <- bind_rows(mundri_awd_opd_cbmc_19_20_ma, unity_awd_19_20_ma,
+                            ben_lan_awd_19_20_ma)
+
+```
+
+
+<!-- ## Malaria -->
+<!-- ### Bentiu and Lankien -->
+<!-- - as some data cleaning already done, only need to make the wide dataset and -->
+<!-- - make the 4 week moving average -->
+```{r mal_ben_lan}
+## Make wide dataset for malaria
+ben_lan_mal_wide <- ben_lan_awd_mal %>% 
+  ## select the variables to keep
+  select(epiweek, site, all_malaria_under5, all_malaria_over5) %>% 
+  pivot_longer(cols = c("all_malaria_under5", "all_malaria_over5"),
+               names_to = "malaria_age",
+               values_to = "count")
+
+
+## Create dataset with moving \naverages
+ben_lan_mal_ma <- ben_lan_awd_mal %>%
+  ## add 4 moving \naverages for malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>%
+  group_by(site) %>%
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_malaria_4wk = round(slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), 
+                                          .before = 3 ), digits = 0))
+
+
+```
+
+<!-- ### Unity -->
+<!-- - create an epiweek variable -->
+<!-- - add a year variable -->
+<!-- - combine the 2019 and 2020 datasets -->
+<!-- - make a wide dataset based on the age variables -->
+
+```{r clean_malaria_unity}
+## Unity 2019
+## Add a site variable to each dataset
+unity_malaria_2019_cl <- unity_malaria_2019_raw %>%
+  mutate(site = "unity") %>% 
+  ## create a year variable
+  mutate(year = 2019) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+## select variables of interest and relabel
+  select(epiweek, 
+         all_malaria_under5 = under5,
+         all_malaria_over5 = over5,
+         site,
+         year)
+
+
+## Unity 2020
+## Add a site variable to each dataset
+unity_malaria_cl <- unity_malaria_raw %>%
+  mutate(site = "unity") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         all_malaria_under5 = under5,
+         all_malaria_over5 = over5,
+         site,
+         year)
+
+
+## make combined dataset
+unity_malaria_19_20_cl <- bind_rows(unity_malaria_2019_cl, unity_malaria_cl) %>% 
+  ## add total value of awd cases
+  mutate(all_malaria = all_malaria_under5 + all_malaria_over5)
+
+
+
+## Make wide dataset for malaria
+unity_malaria_19_20_wide <- unity_malaria_19_20_cl %>% 
+  ## select the variables to keep
+  select(epiweek, site, all_malaria_under5, all_malaria_over5) %>% 
+  pivot_longer(cols = c("all_malaria_under5", "all_malaria_over5"),
+               names_to = "malaria_age",
+               values_to = "count")
+
+
+## Create dataset with moving \naverages
+unity_malaria_19_20_ma <- unity_malaria_19_20_cl %>% 
+  ## add 4 moving \naverages for malaria and malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_malaria_4wk = round(slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE), 
+                                          .before = 3 ),
+                                digits  = 0))
+  
+  
+
+```
+
+<!-- ### Malaria Mundri -->
+<!-- - create an epiweek variable -->
+<!-- - add a year variable -->
+<!-- - combine the datasets -->
+<!-- - make a wide dataset based on the age variables -->
+
+```{r clean_malaria_mundri}
+
+## Mundri 2019
+## OPD data
+## Add a site variable to each dataset
+mundri_malaria_2019_opd_cl <- mundri_mal_2019_opd_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2019) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         under5,
+         over5,
+         site,
+         year)
+
+## CBMC data
+## Add a site variable to each dataset
+mundri_malaria_2019_cbmc_cl <- mundri_mal_2019_cbmc_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2019) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         cbmc_awd_under5 = under5,
+         cbmc_awd_over5 = over5)
+
+
+
+### join the 2019 OPD and CBMC datsets
+ mundri_malaria_2019_opd_cbmc_cl <- mundri_malaria_2019_opd_cl %>%
+   left_join(mundri_malaria_2019_cbmc_cl, by = "epiweek") %>%
+   ## add total value of awd cases by age group
+   mutate(all_malaria_under5 = under5 + cbmc_awd_under5,
+          all_malaria_over5 = over5 + cbmc_awd_over5) %>%
+   ## add total value of awd cases
+  mutate(all_malaria = all_malaria_under5 + all_malaria_over5) %>%
+  ## select variables of interest
+  select(epiweek, site, all_malaria_under5, all_malaria_over5, all_malaria)
+
+
+
+## Mundri 2020
+## OPD
+## Add a site variable to each dataset
+mundri_malaria_opd_cl <- mundri_mal_opd_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## remove epiweeks beyond reporting week
+  filter(epiweek <= reporting_week) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         under5,
+         over5,
+         site,
+         year)
+
+
+## CBMC data
+## Add a site variable to each dataset
+mundri_malaria_cbmc_cl <- mundri_mal_cbmc_raw %>%
+  mutate(site = "mundri") %>% 
+  ## create a year variable
+  mutate(year = 2020) %>% 
+  ## create an epiweek variable as aweek object
+  mutate(epiweek = yearweek(
+    str_glue("{year}-W{epiweek}"))) %>% 
+  ## select variables of interest and relabel
+  select(epiweek, 
+         cbmc_awd_under5 = under5,
+         cbmc_awd_over5 = over5)
+
+
+### join the 2020 OPD and CBMC datsets
+ mundri_malaria_2020_opd_cbmc_cl <- mundri_malaria_opd_cl %>%
+   left_join(mundri_malaria_cbmc_cl, by = "epiweek") %>%
+   ## add total value of awd cases by age group
+   mutate(all_malaria_under5 = under5 + cbmc_awd_under5,
+          all_malaria_over5 = over5 + cbmc_awd_over5) %>%
+   ## add total value of awd cases
+  mutate(all_malaria = all_malaria_under5 + all_malaria_over5) %>%
+  ## select variables of interest
+  select(epiweek, site, all_malaria_under5, all_malaria_over5, all_malaria)
+
+
+## Join 2019 and 2020 datasets
+ mundri_awd_opd_cbmc_19_20_cl <- bind_rows(mundri_malaria_2019_opd_cbmc_cl,
+                                           mundri_malaria_2020_opd_cbmc_cl)
+
+
+
+## Make wide dataset for malaria
+mundri_malaria_opd_cbmc_19_20_cl_wide <-  mundri_awd_opd_cbmc_19_20_cl  %>% 
+  ## select the variables to keep
+  select(epiweek, site, all_malaria_under5, all_malaria_over5) %>% 
+  pivot_longer(cols = c("all_malaria_under5", "all_malaria_over5"),
+               names_to = "malaria_age",
+               values_to = "count")
+
+
+## Create dataset with moving \naverages
+mundri_malaria_opd_cbmc_19_20_ma <- mundri_awd_opd_cbmc_19_20_cl %>% 
+  ## add 4 moving \naverages for malaria and malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_malaria_4wk = round(slide_dbl(all_malaria, ~mean(.x, na.rm = TRUE),
+                                          .before = 3 ), 
+                                digits = 0))
+
+  
+
+```
+
+
+<!-- ### Combine all wide datasets for malaria and the 4 week moving average -->
+
+```{r combine_all_malaria_wide_data}
+## combine the various wide case datasets
+ssudan_malaria_wide <- bind_rows(mundri_malaria_opd_cbmc_19_20_cl_wide,
+                             unity_malaria_19_20_wide, 
+                             ben_lan_mal_wide )
+
+## combine the project specific 4 week moving \naverage datasets
+ssudan_malaria_4ma <- bind_rows(mundri_malaria_opd_cbmc_19_20_ma, unity_malaria_19_20_ma,
+                            ben_lan_mal_ma)
+
+```
+
+
+
+<!-- ## Respiratory failure for Bentiu and Lankien -->
+<!-- - remove empty cols -->
+<!-- - create epiweek variable -->
+<!-- - add a year variable -->
+<!-- - add four week moving average -->
+
+```{r clean_resp_failure}
+## clean resp mortality data for bentiu
+bentiu_resp_mort_cl <- bentiu_resp_mort_raw %>% 
+  ## remove empty cols
+  janitor::remove_empty("cols") %>% 
+  ## convert period to epiweek
+  mutate(epiweek = yearweek(period)) %>% 
+  ## add a site variable
+  mutate(site = "bentiu") %>% 
+  ## rename variable
+  select(resp_failure = cause_of_death_category_rf_respiratory_failure,
+         epiweek, site) %>% 
+  ## add a year variable
+  mutate(year = if_else(grepl("2019", epiweek), 2019, 2020)) 
+
+
+
+## Clean resp mortality data for lankien
+lankien_resp_mort_cl <- lankien_resp_mort_raw %>% 
+  ## remove empty cols
+  janitor::remove_empty("cols") %>% 
+  ## convert period to epiweek
+  mutate(epiweek = yearweek(period)) %>% 
+  ## add a site variable
+  mutate(site = "lankien") %>% 
+  ## rename variable
+  select(resp_failure = cause_of_death_category_rf_respiratory_failure,
+         epiweek, site) %>% 
+  ## add a year variable
+  mutate(year = if_else(grepl("2019", epiweek), 2019, 2020)) 
+
+
+## Combine bentiu and lankien data and create a 4 week moving average
+combined_resp_failure <- bind_rows(bentiu_resp_mort_cl, lankien_resp_mort_cl) %>% 
+  group_by(site) %>% 
+  ## add 4 week moving \naverage
+  mutate(ma_resp_mort_4week = round(slide_dbl(resp_failure, ~mean(.x, na.rm = TRUE), 
+                                              .before = 3 ), digits = 0))
+ 
+```
+
+
+<!-- ## ITFC data -->
+
+```{r clean_itfc_data}
+
+## Add site variable to both datasets
+###bentiu
+bentiu_itfc_cl <- bentiu_itfc_raw %>% 
+  mutate(site = "bentiu")
+
+### lankien
+lankien_itfc_cl <- lankien_itfc_raw %>% 
+  mutate(site = "lankien")
+
+
+## Join the datasets
+ben_lan_itfc_cl <- bind_rows(bentiu_itfc_cl,lankien_itfc_cl) %>% 
+  ## create an epiweek variable
+  mutate(epiweek = yearweek(periodname)) %>% 
+  ## add a year variable
+  mutate(year = if_else(grepl("2019", epiweek), 2019, 2020)) %>% 
+  ## only keep data until the reporting week
+  filter(epiweek <= reporting_week) %>% 
+  mutate(itfc_total_admissions = if_else(is.na(itfc_total_admissions), 0, itfc_total_admissions))
+
+
+
+## Create dataset with moving \naverages
+ben_lan_itfc_ma <- ben_lan_itfc_cl %>% 
+  ## add 4 moving averages for awd and malaria
+  ## make counts in to tsibble so it recognises weeks as main time var
+  as_tsibble(index = epiweek, key = site) %>% 
+  group_by(site) %>% 
+  ## create a moving \naverage variable (deals with missings)
+  mutate(ma_itfc_4wk = round(slide_dbl(itfc_total_admissions,
+                                 ~mean(.x, na.rm = TRUE), .before = 3 ), digits = 0))
+         
+
+```
+
+
+<!-- ## COVID data -->
+<!-- - add bentiu, lankien, leer site variables -->
+
+
+```{r covid_data_combining}
+
+## add a bentiu, lankien and leer site variable to each linelist
+bentiu_covid_raw <- bentiu_covid_raw %>% 
+  mutate(site = "bentiu")
+
+## Add lankien site variable
+lankien_covid_raw <- lankien_covid_raw %>% 
+  mutate(site = "lankien") %>% 
+  ## remove the duplicate entry
+  filter(MSF_N_Patient != "CD61")
+
+## Add Leer Site variable
+leer_covid_raw <- leer_covid_raw %>% 
+  mutate(site = "leer") %>% 
+  ## temporarily make date of consultation the reporting date
+  mutate(report_date = MSF_date_consultation)
+
+## combine bentiu, lankien and leer
+covid_data_raw <- bind_rows(bentiu_covid_raw, lankien_covid_raw, leer_covid_raw) %>% 
+  ##make all variable names lower case
+  janitor::clean_names()
+```
+
+<!-- ## COVID data -->
+<!-- - make all variables lower case -->
+<!-- - create an epiweek variable -->
+<!-- - convert ageonset to a number -->
+<!-- - create age_years and age group variables -->
+
+
+```{r covid_cleaning_data}
+
+## clean data
+covid_data_cl <- covid_data_raw %>% 
+  ## make all variables lower case
+  mutate_all(., str_to_lower) %>% 
+  ## convert report date to a week number and drop the days
+  mutate(epiweek = yearweek(report_date)) %>% 
+  ## convert patinfo_ageonset to numeric
+  mutate(patinfo_ageonset = as.numeric(patinfo_ageonset)) %>% 
+  ## create an age_years variable
+  mutate(age_years = case_when(
+    patinfo_ageonsetunit == "year" ~ patinfo_ageonset,
+    TRUE ~ as.numeric(patinfo_ageonset/12)
+  )) %>% 
+  ## create an age group group variable
+  mutate(age_group = age_categories(age_years, 
+                                    breakers = c(0, 5, 15, 30, 50, 100))) %>% 
+  ## clean up the outcome_patcourse_other variable
+  mutate(outcome_patcourse_status_other2 = case_when(
+    grepl("home", outcome_patcourse_status_other) ~ "at home",
+    grepl("hospital", outcome_patcourse_status_other) ~ "at the hospital",
+    TRUE ~ outcome_patcourse_status_other
+  )) %>% 
+  ## Add a month variable to the dataset
+  mutate(month = as.yearmon(report_date)) %>% 
+  ## change status variable so suspect cases are converted to not a case if they have a negative test
+  mutate(msf_covid_status2 = case_when(
+    msf_covid_status == "suspected" & outcome_lab_result == "negative" ~ "not a case",
+    TRUE ~ msf_covid_status
+  ))
+
+
+## make a count of cases by suspect and confirmed status per week by site
+covid_case_counts <- covid_data_cl %>% 
+  ## group by week, site, status
+  group_by(epiweek, site, msf_covid_status2) %>% 
+  ## tally
+  tally()
+
+
+## make a count of case by outcome status
+covid_outcome_counts <- covid_data_cl %>% 
+  ## clean up outcome_patcourse_status to take in sent home values from outcome_patcourse_status_other
+  ## where ctc room is mentioned in other, put as ctc room as main outcome rather than other
+  mutate(outcome_patcourse_status2 = case_when(
+    grepl("home", outcome_patcourse_status_other) ~ "sent back home",
+    TRUE ~ outcome_patcourse_status
+  )) %>% 
+  ## group by week, site, status
+  group_by(epiweek, site, outcome_patcourse_status2) %>% 
+  ## tally
+  tally()
+
+## make a count by age group
+covid_age_counts <- covid_data_cl %>% 
+  ## group by week, site and age group
+  group_by(epiweek, site, age_group) %>% 
+  ## tally
+  tally()
+
+```
+
+
+<!-- ## Mortality data -->
+<!-- We can combine the 2019 and 2020 data -->
+
+```{r prep_mortality_data}
+
+## browse data
+#str(bentiu_mort_2019_raw)
+#str(bentiu_mort_current_raw)
+
+##  Add year to both datasets
+bentiu_mort_2019_clean <- bentiu_mort_2019_raw %>% 
+  mutate(year = 2019) %>% 
+  ## Only keep the rows with data for total deaths
+  filter(is.na(d_total_week) == F) %>% 
+  ## Select relevant variables and rename
+  select(year, 
+         week, 
+         "less_5yrs" = d_5_week,
+         "more_5yrs" = d_5_week_2,
+         "total_deaths" = d_total_week,
+         "population" = popul_tot)
+
+bentiu_mort_current_clean <- bentiu_mort_current_raw %>% 
+  mutate(year = 2020) %>% 
+  ## Only keep the rows with data for total deaths
+  filter(is.na(d_total_week) == F) %>% 
+  ## Select relevant variables
+  select(year, 
+         week, 
+         "less_5yrs" = d_5_week,
+         "more_5yrs" = d_5_week_2,
+         "total_deaths" = d_total_week,
+         "population" = popul_tot)
+
+## Combine both datasets
+bentiu_last_current <- bind_rows(bentiu_mort_2019_clean, 
+                              bentiu_mort_current_clean) %>% 
+  ## calculate death rate per 10000 per day
+  mutate(death_rate_total = ((total_deaths/population) *10000)/7)
+
+
+## Create a four week moving \naverage
+bentiu_last_current <- bentiu_last_current %>% 
+  ## create aweek compatible epiweek variable
+    mutate(epiweek = yearweek(
+    str_glue("{year}-W{week}"))) %>% 
+  ## average the weekly values of deaths for previous 1 month
+  mutate(four_week_roll = round(slide_dbl(total_deaths, ~mean(.x, na.rm = TRUE), 
+                                          .before = 3 ), digits = 0))
+
+```
+
+
+<!-- ## AJS data -->
+<!-- - convert all variables to lower case -->
+<!-- - convert sn, epiweeek and age_y to integers -->
+<!-- - create block and is_in_sect variables to match with GIS data -->
+<!-- - create year variables - 2019 and 2020 -->
+<!-- - create an aweek epiweek variable -->
+<!-- - create an age_group variable -->
+<!-- - count cases by year and week -->
+
+
+```{r ajs_clean}
+## browse data
+# str(ajs_poc_raw)
+
+
+## AJS cleaning
+ajs_poc_cl <- ajs_poc_raw %>%
+  ## convert all variables to lower case
+  mutate_all(., str_to_lower) %>% 
+  ## convert sn, epi_week and age_y to integers
+  mutate_at(c("sn", "epi_week", "age_y"),as.integer) %>% 
+  ## Add year variables
+  mutate(year = ifelse(sn <= 127, 2019, 2020)) %>% 
+  ## create a new bloc variable that removes the sector number from name
+  mutate(bloc = sub(".","", payam)) %>% 
+  ## create sector variable
+  mutate(is_in_sect = county) %>% 
+  ## create aweek compatible epiweek
+  mutate(epiweek2 = yearweek(
+    str_glue("{year}-W{epi_week}"))) %>% 
+  ## create an age group variable
+  mutate(age_group = age_categories(age_y, 
+                                   breakers = c(0, 5, 15, 30, 90))) %>% 
+  ## clean up the outcome variable
+  mutate(outcome = case_when(
+    pt_outcome %in% c("death", "died", "dead") ~ "dead",
+    TRUE ~ pt_outcome
+  ))
+
+
+
+## Count cases by year and week
+ajs_poc_cl_grp <- ajs_poc_cl %>% 
+  group_by(year, epiweek2) %>% 
+  ## count number of cases per year and week
+  tally() %>% 
+  ## average the weekly values of ajs cases for previous 1 month
+  mutate(four_week_roll = round(slide_dbl(n, ~mean(.x, na.rm = TRUE), 
+                                          .before = 3 ), digits = 0))
+
+
+## Count cases by age group and week
+ajs_poc_cl_agegrp <- ajs_poc_cl %>% 
+  group_by(age_group, epiweek2) %>% 
+  ## count number of cases per year and week
+  tally() %>% 
+  ## average the weekly values of ajs cases for previous 1 month
+  mutate(four_week_roll = round(slide_dbl(n, ~mean(.x, na.rm = TRUE), 
+                                    .before = 3 ), digits = 0))
+
+
+## Count cases by year and week and outcome status
+ajs_poc_cl_outcome <- ajs_poc_cl %>% 
+  group_by(year, epiweek2, outcome) %>% 
+  ## count number of cases per year and week
+  tally() %>% 
+  ## average the weekly values of ajs cases for previous 1 month
+  mutate(four_week_roll = round(slide_dbl(n, ~mean(.x, na.rm = TRUE), 
+                                          .before = 3 ), digits =0 ))
+
+
+  
+
+```
+
+<!-- ### Apply data cleaning dictionary to AJS GIS data -->
+
+```{r ajs_gis_data_cleaning}
+
+## ## Standardising values --------------------------------------------------------
+# Import the dictionary that specifies the values of specific variables
+dictionary <- rio::import(here::here("6_data", "ajs", "dictionary_ssudan.xlsx"))
+
+## This step fixes the values so that you can read them.
+## values like 1/0 will be recoded as "Yes" / "No" based on the dictionary
+ ajs_poc_cl <- matchmaker::match_df(ajs_poc_cl,
+  dict  = dictionary,
+  from  = "options",
+  to    = "values",
+  by    = "grp",
+  order = "orders"
+ )
+
+```
+
+
+<!-- ## Measles PoC data -->
+<!-- - remove those that tested negative for measles -->
+<!-- - convert all cases to lower case -->
+<!-- - convert date variables to dates -->
+<!-- - create year variables -->
+<!-- - create bloc and sector variables for later maps -->
+<!-- - convert sn and age_in_months to numeric variables -->
+<!-- - create age_in_years2 variable which takes age_in_months/12 -->
+<!-- - create an age_group -->
+<!-- - create an epiweek variable -->
+
+<!-- Second step -->
+
+<!-- - count cases per year and week -->
+<!-- - only for 2019 and 2020 -->
+<!-- - add the zero counts data -->
+<!-- - create a four week moving average -->
+<!-- - fix the year error when epiweek starts at the end of 2019 -->
+
+```{r clean_measles_poc}
+
+## browse data
+#str(measles_poc_raw)
+
+## Clean the measles dataset
+measles_poc_cl <- measles_poc_raw %>% 
+  ## remove those that tested negative for measles
+  filter(lab_results %in% c(NA, "pending", "positive", "no sample", "positve")) %>% 
+  # convert all data to lower case in dataset (no more M, m, f, F) 
+  mutate_all(., str_to_lower)   %>% 
+  ##  Finds all variables with date in the name and converts alto date format
+  mutate_at(vars(contains("date")), as.Date)  %>% 
+  ## create a year variable
+  mutate(year = case_when(
+    date_admission < "2019-01-01" ~ 2018,
+    date_admission >= "2019-01-01" & date_admission <= "2019-12-31" ~ 2019,
+    TRUE ~ 2020
+  )) %>% 
+  ## create a new bloc variable that is the same as payam
+  mutate(bloc = payam) %>% 
+  ## create sector variable
+  mutate(is_in_sect = county) %>%
+  ## convert sn and age_in_months to numeric
+ mutate_at(c("age_in_months"), as.numeric) %>% 
+  ## replace missing values or 0 values of age in years with age_in_months/12
+  mutate( age_in_years2 = case_when(
+    is.na(age_in_years) == T | age_in_years == 0 ~ as.numeric(age_in_months / 12), # where age_years = NA age_years = 0.0, take the value of age_months/12
+    TRUE ~ as.numeric(age_in_years)            # otherwise take the current value of age_years
+  )) %>% 
+  ## create an age group variable
+  mutate(age_group = age_categories(age_in_years2, 
+                                    breakers = c(0, 5, 15, 30, 90))) %>% 
+  ## create an epiweek variable from date admission
+  mutate(epiweek = yearweek(date_admission)) %>% 
+  ## fix the year error where epiweek is 2020-W01
+  mutate(year = case_when(
+    year == 2019 & epiweek == yearweek("2020 W01") ~ 2020,
+    TRUE ~ year
+  )) %>% 
+  ## make a new outcome variable
+  mutate(outcome2 = case_when(
+    grepl("died|dead|death", remarks) ~ "dead",
+    outcome == "d" ~ "dead",
+    outcome == "a" ~ "alive",
+    TRUE ~ outcome
+  ))
+```
+
+<!-- Second cleaning steps
+<!-- - count cases per year and week -->
+<!-- - only for 2019 and 2020 -->
+<!-- - create a four week moving average -->
+<!-- - fix the year error when epiweek starts at the end of 2019 -->
+
+```{r clean_measles_poc_part2}
+## Count cases per year per week for 2019 and 2020
+measles_poc_cl_grp  <- measles_poc_cl %>% 
+  ## only keep measles cases from 2019 and 2020
+  filter(year >=2019) %>% 
+  ## group date by year and week
+  group_by(year, epiweek) %>% 
+  ## county cases by year and week
+  tally() %>% 
+  ## ungroup
+  ungroup() %>% 
+  # ## add in zero cases for weeks 28 and 29
+  # bind_rows(zero_report) %>% 
+  ## average the weekly values of ajs cases for previous 1 month
+  mutate(four_week_roll = round(slide_dbl(n, ~mean(.x, na.rm = TRUE),
+                                          .before = 3 ), digits = 0))
+
+
+## Count cases per week per age group for 2019 and 2020
+measles_poc_cl_age_grp  <- measles_poc_cl %>% 
+  ## only keep measles cases from 2019 and 2020
+  filter(year >=2019) %>% 
+  ## group date by year and week and age group
+  group_by(year, epiweek, age_group) %>% 
+  ## county cases by year and week and age group
+  tally() 
+
+
+## count cases per week by outcome status 2019 and 2020
+measles_poc_cl_outcome_grp <- measles_poc_cl %>% 
+  ## only keep measles cases from 2019 and 2020
+  filter(year >=2019) %>% 
+  ## group date by year and week and outcome2
+  group_by(year, epiweek, outcome2) %>% 
+  ## county cases by year and week and outcome2
+  tally() 
+  
+
+  
+```
+
+<!-- ## Apply data cleaning dictionary to measles GIS data -->
+
+```{r measles_gis_data_cleaning}
+
+## ## Standardising values --------------------------------------------------------
+# Import the dictionary that specifies the values of specific variables
+dictionary <- rio::import(here::here("6_data", "measles", "dictionary_ssudan.xlsx"))
+
+## This step fixes the values so that you can read them.
+## values like 1/0 will be recoded as "Yes" / "No" based on the dictionary
+ measles_poc_cl <- matchmaker::match_df(measles_poc_cl,
+  dict  = dictionary,
+  from  = "options",
+  to    = "values",
+  by    = "grp",
+  order = "orders"
+ )
+
+```
+
+
+## Summary  
+
+* COVID-19  
+  - A total of `r nrow(covid_data_cl %>% filter(msf_covid_status2 == "suspected"))` suspected and `r nrow(filter(covid_data_cl, msf_covid_status2 == "confirmed"))` confirmed cases have been reported in Bentiu PoC, Lankien and Leer (`r nrow(covid_data_cl %>% filter(msf_covid_status2 == "confirmed", site  == "lankien"))` confirmed cases in Lankien,  `r nrow(covid_data_cl %>% filter(msf_covid_status2 == "confirmed", site  == "bentiu"))` in Bentiu PoC and `r nrow(covid_data_cl %>% filter(msf_covid_status2 == "confirmed", site  == "leer"))` in Leer ). `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "lankien"))` deaths in Lankien,  `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "bentiu"))` in Bentiu and `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "leer"))` in Leer. In `r two_weeks_earlier` and `r reporting_week`, there were a total of `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier))` suspected cases, of which `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, msf_covid_status2 == "confirmed"))` were confirmed cases.  `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, msf_covid_status2 %in% c ("suspected", "confirmed"), site == "lankien"))` in Lankien and `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, msf_covid_status2 %in% c ("suspected", "confirmed", "not a case"), site == "bentiu"))` in Bentiu and `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, msf_covid_status2 %in% c ("suspected", "confirmed"), site == "leer"))` in Leer. There were `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, outcome_patcourse_status == "died"))` deaths in the previous two weeks across the projects.  No further suspect cases have been dentified in the Mundri.
+  
+* Mortality surveillance  
+  - Rolling four weekly average number of deaths is stable at `r bentiu_last_current %>% filter(epiweek == reporting_week) %>% pull(four_week_roll)` per week in Bentiu PoC. The Bentiu PoC crude mortality rates per 10,000 population per day over the past four weeks ranged from 
+`r bentiu_last_current %>% filter(epiweek >= four_weeks_earlier & epiweek <= reporting_week) %>% summarise(min = round(min(death_rate_total), digits = 2),max = round(max(death_rate_total), digits = 2)) %>% mutate(combo = paste0(min, "-", max)) %>% pull(combo)`. There were a total of `r bentiu_last_current %>% filter(epiweek >= start_last_year, epiweek <= reporting_week_last_year) %>% summarise(count_deaths = sum(total_deaths)) %>% pull(count_deaths)` deaths in Bentiu PoC by `r reporting_week_last_year` compared to `r bentiu_last_current %>% filter(epiweek >= start_year, epiweek <= reporting_week) %>% summarise(count_deaths = sum(total_deaths)) %>% pull(count_deaths)` by `r reporting_week`. Death due to respiratory failure also stable at `r combined_resp_failure %>% filter(epiweek == reporting_week, site == "bentiu") %>% pull(ma_resp_mort_4week)` per week in Bentiu PoC. In Lankien, there have been `r lankien_resp_mort_cl %>% filter(epiweek >= start_last_year, epiweek <= yearweek("2019 W35")) %>% summarise(count_resp = sum(resp_failure)) %>% pull(count_resp)` respiratory failure deaths by 2019 W35 compared to `r lankien_resp_mort_cl %>% filter(epiweek >= start_year, epiweek <= yearweek("2020 W35")) %>% summarise(count_resp = sum(resp_failure)) %>% pull(count_resp)` respiratory failure deaths by 2020 W35 this year.  
+
+* ITFC  
+  - In `r reporting_week`, rolling four week average of `r filter(ben_lan_itfc_ma, epiweek == reporting_week, site == "lankien") %>%  pull(ma_itfc_4wk)` in Lankien (`r filter(ben_lan_itfc_ma, epiweek == reporting_week, site == "lankien") %>%  pull(itfc_total_admissions)` admissions in `r reporting_week`) and `r filter(ben_lan_itfc_ma, epiweek == reporting_week, site == "bentiu") %>%  pull(ma_itfc_4wk)` in Bentiu PoC ( `r filter(ben_lan_itfc_ma, epiweek == reporting_week, site == "bentiu") %>%  pull(itfc_total_admissions)` admissions in `r reporting_week`).  
+  
+* AWD  
+  - **AWD cases continue to decline in Lankien, Bentiu PoC and Unity. Cases are stable in Mundri**.  
+
+* Malaria  
+  - `r filter(ben_lan_awd_mal, epiweek == reporting_week, site == "bentiu") %>% pull(opd_malaria)` confirmed malaria cases in Bentiu PoC OPD  and `r filter(ben_lan_awd_mal, epiweek == reporting_week, site == "bentiu") %>% pull(iccm_malaria)` in the malaria point in `r reporting_week`. The four-week moving average in `r reporting_week` is `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "bentiu") %>% pull(ma_malaria_4wk)` cases when including OPD and malaria point data.  In `r four_weeks_earlier`, the four-week moving average was `r ssudan_malaria_4ma %>% filter(epiweek == four_weeks_earlier, site == "bentiu") %>% pull(ma_malaria_4wk)` in Bentiu PoC. The four week moving average was `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "lankien") %>% pull(ma_malaria_4wk)`, `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "mundri") %>% pull(ma_malaria_4wk)`, and `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "unity") %>% pull(ma_malaria_4wk)` in  Lankien, Mundri and Unity projects respectively in `r reporting_week`. 
+  
+* AJS  
+  - In `r reporting_week`, the four week average was `r filter(ajs_poc_cl_grp, epiweek2 == reporting_week) %>% pull(four_week_roll)` cases in Bentiu PoC and the cases in the last 21 days were scattered across the camp.
+  
+* Measles  
+  - No new cases of measles in any projects in the past two weeks.  
+
+* Consultation numbers  
+  - The number of consultations in Lankien and Mundri follow the trends lines of the previous year but lower overall. Bentiu OPD consultations have returned to lower levels but still large numbers at the malaria points. No significant changes in consultations numbers seen in Unity projects due to COVID-19 outbreak.
+
+* Population estimate  
+  - June 2020 population estimate was 99,052 individuals in Bentiu PoC (a drop from 117,766 in May), of which 22% were children aged <5 years. Still waiting on the July/August population update. 
+  
+
+## COVID-19
+There are currently a  total of `r nrow(filter(covid_data_cl, msf_covid_status2 == "suspected"))` suspected  and `r nrow(filter(covid_data_cl, msf_covid_status2 == "confirmed"))` confirmed COVID-19 cases in Bentiu, Lankien and Leer reported (excluding non-cases). `r nrow(filter(covid_data_cl, msf_covid_status2 == "confirmed", site == "lankien" ))` confirmed cases in Lankien and `r nrow(filter(covid_data_cl, msf_covid_status2 == "confirmed", site == "bentiu"))` in Bentiu Poc and `r nrow(filter(covid_data_cl, msf_covid_status2 == "confirmed", site == "leer"))` in Leer. There have been `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died"))` deaths among suspected and confirmed cases with `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "lankien"))` in Lankien and `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "bentiu"))` in Bentiu and `r nrow(filter(covid_data_cl, outcome_patcourse_status == "died", site == "leer"))` in Leer. There were a total of `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier))` suspected cases identified in Bentiu, Lankien and Leer in `r two_weeks_earlier` and `r reporting_week`, with `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, site == "lankien"))` in Lankien and  `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, site == "bentiu"))` in Bentiu and `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, site == "leer"))` in Leer. There were `r nrow(filter(covid_data_cl, epiweek == reporting_week | epiweek == two_weeks_earlier, outcome_patcourse_status == "died"))` deaths reported during `r two_weeks_earlier` and `r reporting_week`. No further suspect cases identified in Mundri beyond the initial two cases identified at Mundri PHCC to date.
+
+
+<!-- #### Epicurve of suspected and confirmed COVID-19 cases -->
+```{r epicurve_case_status_covid}
+
+ covid_cases_epicurve <- ggplot(covid_case_counts, aes(x = epiweek, 
+                              y = n, 
+                              fill = as.factor(msf_covid_status2))) +
+  geom_col( ) +
+  ## adjust the ticks on x-axis
+  scale_x_yearweek(date_breaks = "1 month", date_labels = "%U-%Y") +
+  # facet by site
+  facet_grid( . ~ site) +
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly suspected and confirmed COVID-19 \ncases in Bentiu PoC, Lankien and Leer, 2020",
+       x = "Week",
+       y = "Number of cases",
+       fill = "COVID-19 status") +
+  theme(legend.title = element_text(size =14))
+
+```
+
+
+
+<!-- <!-- #### Details of individuals who have outcome as other  --> 
+
+```{r table_covid_other_outcome} 
+
+# <!-- tab_linelist(covid_data_cl, -->
+# <!--              outcome_patcourse_status_other2, -->
+# <!--              col_total = TRUE) %>%  -->
+# <!--   ## remove the variable variable -->
+# <!--   select(-variable) %>%  -->
+# <!--   ## Round up proportion value -->
+# <!--   mutate(proportion = round(proportion, digits = 0)) %>% -->
+# <!--   ## rename the value variable -->
+# <!--   rename("Other outcome" = value) %>%  -->
+# <!--   gt::gt() -->
+
+``` 
+
+
+<!-- #### Epicurve of COVID-19 cases by age group -->
+```{r epicurve_age_covid}
+
+covid_age_epicurve <- ggplot(covid_age_counts, aes(x = epiweek,
+                             y = n, 
+                             fill = as.factor(age_group))) +
+  geom_col( ) +
+  ## adjust the scale on x-axis
+   ## adjust the ticks on x-axis
+  scale_x_yearweek(date_breaks = "1 month", date_labels = "%U-%Y") +
+  # facet by site
+  facet_grid( . ~ site) +
+  # adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly suspected and confirmed cases\n in Bentiu PoC, Lankien and Leer by age group, 2020",
+       x = "Week",
+       y = "Number of cases",
+       fill = "Age group in years") +
+  theme(legend.title = element_text(size =14))
+  
+```
+
+<!-- #### Combine case number and age COVID epicurves -->
+
+```{r combine_case_age_epicurves, fig.width = 14, fig.height = 6}
+
+covid_cases_epicurve + covid_age_epicurve
+
+```
+
+
+
+<!-- #### COVID-19 age_sex pyramid -->
+
+```{r covid_age_sex_pyramids}
+
+## Benitu PoC age-sex pyramid
+age_sex_bentiu  <- plot_age_pyramid(filter(covid_data_cl,site == "bentiu"),
+                                    age_group = "age_group", 
+                                    split_by = "patinfo_sex",
+                                    na.rm = TRUE) + # exclude missing values
+  labs(y = "Cases (n)", x = "Age group") + # change axis  labels
+  theme(legend.position = "bottom",     # move legend to bottom
+        legend.title = element_blank(), # remove title
+        text = element_text(size = 18),  # change text size
+        plot.title = element_text(size = 14)) +
+  ggtitle(paste0("Age-sex pyramid of suspected and confirmed COVID-19 \ncases in Bentiu"))
+
+
+## Lankien age-sex pyramid
+age_sex_lankien  <- plot_age_pyramid(filter(covid_data_cl,site == "lankien"),
+                                    age_group = "age_group", 
+                                    split_by = "patinfo_sex",
+                                    na.rm = TRUE) +  # exclude missing values
+  labs(y = "Cases (n)", x = "Age group") + # change axis  labels
+  theme(legend.position = "bottom",     # move legend to bottom
+        legend.title = element_blank(), # remove title
+        text = element_text(size = 18),  # change text size
+        plot.title = element_text(size = 14)) +
+  ggtitle(paste0("Age-sex pyramid of suspected and confirmed COVID-19 \ncases in Lankien"))
+
+
+## Leer age-sex pyramid
+age_sex_leer  <- plot_age_pyramid(filter(covid_data_cl,site == "leer"),
+                                    age_group = "age_group", 
+                                    split_by = "patinfo_sex",
+                                  na.rm = TRUE) +  # exclude missing values
+  labs(y = "Cases (n)", x = "Age group") + # change axis  labels
+  theme(legend.position = "bottom",     # move legend to bottom
+        legend.title = element_blank(), # remove title
+        text = element_text(size = 18),  # change text size
+        plot.title = element_text(size = 14)) +
+  ggtitle(paste0("Age-sex pyramid of suspected and confirmed COVID-19 \ncases in Leer"))
+
+```
+
+
+<!-- #### Combine age sex pyramids -->
+
+```{r combine_covid_age_sex_pyramids, fig.width = 14, fig.height = 7}
+
+age_sex_bentiu + age_sex_lankien + age_sex_leer
+
+```
+
+The below table provides additional information on the deaths among suspected and confirmed COVID-19 cases by project location. 
+
+<!-- <!-- #### Characteristics of dead cases by age group and site --> 
+
+```{r table_death_age_covid} 
+
+## examine only dead cases 
+ covid_deaths <- covid_data_cl %>% 
+   filter(outcome_patcourse_status == "died") 
+ ## Calculate number and proportions of age group for the dead cases 
+ tab_linelist(covid_deaths, age_group, strata = "site") %>% 
+   select(-variable) %>% 
+   rename("Age group"  = value) %>% 
+   flextable::flextable() 
+ 
+```
+
+
+<!-- #### HIV status of cases -->
+
+```{r hiv_cases}
+
+# tab_linelist(covid_data_cl, 
+#              msf_hiv_status, 
+#              strata = "site", 
+#              ) %>% 
+#   ## remove the variable variable
+#   select(-variable) %>% 
+#   ## rename the value
+#   rename("HIV status" = value) %>% 
+#   gt::gt()
+
+
+```
+
+<!-- #### TB status of cases -->
+
+```{r tb_cases}
+
+# tab_linelist(covid_data_cl, 
+#              msf_tb_active, 
+#              strata = "site", 
+#              ) %>% 
+#   ## remove the variable variable
+#   select(-variable) %>% 
+#   ## rename the value
+#   rename("Active TB" = value) %>% 
+#   gt::gt()
+
+
+```
+
+
+<!-- #### Other comorbidity status of cases -->
+
+```{r other_comorb_cases}
+
+# tab_linelist(covid_data_cl, 
+#              comcond_other, 
+#              strata = "site", 
+#              ) %>% 
+#   ## remove the variable variable
+#   select(-variable) %>% 
+#   ## rename the value
+#   rename("Other comborbidity" = value) %>% 
+#   gt::gt()
+
+
+```
+
+
+<!-- #### HIV status among dead -->
+
+```{r hiv_deaths}
+
+# tab_linelist(covid_deaths, 
+#              msf_hiv_status, 
+#              strata = "site", 
+#              ) %>% 
+#   ## remove the variable variable
+#   select(-variable) %>% 
+#   ## rename the value
+#   rename("HIV status" = value) %>% 
+#   gt::gt()
+
+
+```
+
+<!-- #### TB status among dead -->
+
+```{r tb_deaths}
+
+# tab_linelist(covid_deaths, 
+#              msf_tb_active, 
+#              strata = "site", 
+#              ) %>% 
+#   ## remove the variable variable
+#   select(-variable) %>% 
+#   ## rename the value
+#   rename("Active TB" = value) %>% 
+#   gt::gt()
+
+
+```
+
+<!-- #### Other comorbidity status among dead -->
+
+```{r other_comorb_dead}
+
+# tab_linelist(covid_deaths, 
+#              comcond_other, 
+#              strata = "site", 
+#              ) %>% 
+#   ## remove the variable variable
+#   select(-variable) %>% 
+#   ## rename the value
+#   rename("Other comborbidity" = value) %>% 
+#   gt::gt()
+
+
+```
+
+<!-- #### Data for OCA monthly report -->
+
+```{r covid_summary_table}
+
+## Create the current month dataset
+current_covid_monthly_report <- covid_data_cl %>% 
+  filter(month == reporting_month)
+
+
+## No. of confirmed/suspected cases
+cases_monthly <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only need the site variable
+  select(site) %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+
+## treated with oxygen
+treated_oxygen <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only keep those that received oxygen
+  filter(msf_received_oxygen == "yes") %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+
+  
+## deaths
+current_deaths <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only keep those that died
+  filter(outcome_patcourse_status == "died") %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+  
+
+## Number of tests conducted
+current_tests <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  ## only keep those with a lab result
+  filter(is.na(outcome_lab_result) == F) %>% 
+  ## group by site and add up numbers per site
+  group_by(site) %>% 
+  tally()
+  
+## number of msf staff among cases
+current_staff_cases <- current_covid_monthly_report %>% 
+  ## only keep suspect and confirmed cases
+  filter(msf_covid_status %in% c("suspected", "confirmed")) %>% 
+  tab_linelist(msf_job)
+
+
+```
+
+### Mortality surveillance
+In Bentiu PoC, the current four-week moving average is `r bentiu_last_current %>% filter(epiweek == reporting_week) %>% pull(four_week_roll)` cases per week. The crude mortality rate for the total population between `r four_weeks_earlier` and `r reporting_week` was `r bentiu_last_current %>% filter(epiweek >= four_weeks_earlier, epiweek <= reporting_week) %>% select(death_rate_total) %>% mutate(death_rate_total = round(death_rate_total, digits = 2)) %>% summarise(range = range(death_rate_total)) %>% pull(range)` deaths/10,000 population/day.
+
+There were a total of `r bentiu_last_current %>% filter(epiweek >= start_last_year, epiweek <= reporting_week_last_year) %>% summarise(count_deaths = sum(total_deaths)) %>% pull(count_deaths)` deaths in Bentiu PoC by `r reporting_week_last_year` compared to `r bentiu_last_current %>% filter(epiweek >= start_year, epiweek <= reporting_week) %>% summarise(count_deaths = sum(total_deaths)) %>% pull(count_deaths)` by `r reporting_week`
+
+
+<!-- #### Bentiu mortality figure with four week moving average -->
+
+```{r bentiu_mortality_figure}
+## Plot weeks vs deaths by year
+ggplot(bentiu_last_current, aes(x = epiweek, 
+                                y = total_deaths, 
+                                fill = as.factor(year))) +
+  geom_col( ) +
+  ## add the four week average as a line
+  geom_line(aes(x = epiweek, y = four_week_roll, colour = "moving \naverage"), 
+            size = 1.2) +
+  # adjus the x axis
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## Add labels
+  theme(plot.title = element_text(size = 16)) +
+  labs(title = "Number of weekly deaths in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of deaths",
+       fill = "Year",
+       colour = "")
+
+```
+
+## Respiratory failure
+**THIS DATA has not been updated from the previous SitRep**
+
+The total number of deaths due to respiratory failure in Bentiu PoC up to 2020 W35 is `r combined_resp_failure %>% filter(epiweek >= start_year, epiweek <= reporting_week, site == "bentiu") %>% summarise(total_deaths = sum(resp_failure)) %>% pull(total_deaths)` compared to `r combined_resp_failure %>% filter(epiweek >= start_last_year, epiweek <= yearweek("2019 W35"), site == "bentiu") %>% summarise(total_deaths = sum(resp_failure)) %>% pull(total_deaths)` in the same period in the previous year. Similar figures for Lankien are `r combined_resp_failure %>% filter(epiweek >= start_year, epiweek <= reporting_week, site == "lankien") %>% summarise(total_deaths = sum(resp_failure)) %>% pull(total_deaths)` for `r reporting_year` and `r combined_resp_failure %>% filter(epiweek >= start_last_year, epiweek <= yearweek("2019 W35"), site == "lankien") %>% summarise(total_deaths = sum(resp_failure)) %>% pull(total_deaths)` for `r reporting_last_year`. However, not all deaths due to respiratory failure had COVID-19 like symptoms as their primary/secondary diagnoses on admission.
+
+
+```{r resp_failure_epicurve}
+
+ggplot(combined_resp_failure, aes(x = epiweek, 
+                                y = resp_failure,
+                                fill = as.factor(year))) +
+  geom_col() +
+  ## add 4 week moving \naverage
+  geom_line(aes(x = epiweek, y = ma_resp_mort_4week, colour = "moving \naverage"),
+            size = 1.2) +
+  ## adjust x axis breaks
+  scale_x_yearweek(date_breaks = "2 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90 )) +
+  ## separate graphs by site
+  facet_grid(. ~ site) +
+  ## Add labels
+  theme(plot.title = element_text(size = 16)) +
+  labs(title = "Number of weekly respiratory deaths in Bentiu PoC and Lankien \nwith a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of respiratory deaths",
+       fill = "Year",
+       colour = "")
+
+```
+
+
+## Nutrition
+In `r reporting_week`, the four week rolling average is `r ben_lan_itfc_ma %>% filter(site == "bentiu", epiweek == reporting_week) %>% pull(ma_itfc_4wk)` cases/week in Bentiu PoC and `r ben_lan_itfc_ma %>% filter(site == "lankien", epiweek == reporting_week) %>% pull(ma_itfc_4wk)` in  Lankien. There were `r ben_lan_itfc_ma %>% filter(site == "bentiu", epiweek == reporting_week) %>% pull(itfc_total_admissions)` ITFC admissions in Bentiu  and `r ben_lan_itfc_ma %>% filter(site == "lankien", epiweek == reporting_week) %>% pull(itfc_total_admissions)` in Lankien in `r reporting_week`. 
+
+```{r itfc_epicurve, fig.height = 6}
+
+ggplot(ben_lan_itfc_ma, aes(x = epiweek, 
+                            y = itfc_total_admissions,
+                            fill = as.factor(year))) +
+  geom_col() +
+  ## add 4 week moving \naverage
+  geom_line(aes(x = epiweek, y = ma_itfc_4wk, colour = "moving \naverage"),
+            size = 1.2) +
+  ## adjust x axis breaks
+  scale_x_yearweek(date_breaks = "3 months", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## facet by site
+  facet_grid(. ~ site) +
+  ## reduce size of title text
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90 )) +
+  ## Add labels
+  labs(title = "Number of weekly ITFC admissions in Bentiu PoC and Lankien \nwith a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of admissions",
+       fill = "Year",
+       colour = "")
+
+
+
+```
+
+The proportion of Severe Acute Malnutrition (SAM) cases in Unity and Mundri OPDs were beneath the emergency threshold (<2% indicating generally food secure).
+
+```{r plot_unity_mundri_nutrition, fig.height = 6}
+
+ggplot(unity_mundri_nutrition_raw, 
+       aes(x = month, 
+           y = sam_proportion)) +
+         geom_line(aes(fill = site)) +
+         ## facet by site
+         facet_grid(. ~ site) +
+  ## reduce size of title text
+  theme(plot.title = element_text(size = 14)) +
+  ## set the ticks for the y axis
+  scale_y_continuous(limits = c(0,8)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90 )) +
+  ## Add labels
+  labs(title = "Proportion of SAM in Unity and Mundri, 2019-2020",
+       x = "Month",
+       y = "Proportion of SAM")
+
+```
+
+## AWD 
+CBMC data and OPD data are now included in these graphs and figures. In `r reporting_week`, there were `r ssudan_awd_4ma %>% filter(site == "bentiu", epiweek == reporting_week) %>% pull(all_awd)` cases of AWD in  Bentiu PoC, `r ssudan_awd_4ma %>% filter(site == "lankien", epiweek == reporting_week) %>% pull(all_awd)` cases in Lankien, `r ssudan_awd_4ma %>% filter(site == "unity", epiweek == reporting_week) %>% pull(all_awd)` cases in Unity and `r ssudan_awd_4ma %>% filter(site == "mundri", epiweek == reporting_week) %>% pull(all_awd)` cases in Mundri. The four week average were `r ssudan_awd_4ma %>% filter(site == "bentiu", epiweek == reporting_week) %>% pull(ma_awd_4wk)`, `r ssudan_awd_4ma %>% filter(site == "lankien", epiweek == reporting_week) %>% pull(ma_awd_4wk)`,`r ssudan_awd_4ma %>% filter(site == "mundri", epiweek == reporting_week) %>% pull(ma_awd_4wk)` and `r ssudan_awd_4ma %>% filter(site == "unity", epiweek == reporting_week) %>% pull(ma_awd_4wk)` in Bentiu, Lankien, Mundri and Unity respectively.
+
+<!-- ## all projects -->
+```{r awd_all_epicurve, fig.width = 16, fig.height = 8}
+## Histogram with line with 4 weekly average
+ggplot() +
+  geom_col(data = ssudan_awd_wide, 
+           aes(x = epiweek, 
+               y = count, 
+               fill = factor(awd_age,
+                             levels = c("all_awd_under5", "all_awd_over5"),
+                             labels = c("<5 yrs", "5+ yrs")))) +
+  ## add four week moving \naverage
+  geom_line(data = ssudan_awd_4ma,
+            aes(x = epiweek, 
+                y = ma_awd_4wk, colour = "moving \naverage"),
+            size = 1.2)  + 
+  ## adjust the date scale on the x axis
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ##create a legend for the 4 week moving \naverage
+  scale_colour_manual( values = c("moving \naverage" = "black")) +
+  ## facet by site
+  facet_grid(. ~ site) +
+  ## Add labels
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Weekly AWD cases in Bentiu PoC, Lankien, Mundri and Unity with a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of AWD cases",
+       fill = "Age group",
+       colour = "")
+
+```
+
+## Malaria
+CBMC data and OPD data are now included in these graphs and figures. The current four-week moving average is `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "bentiu") %>% pull(ma_malaria_4wk)` cases per week in Bentiu, `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "lankien") %>% pull(ma_malaria_4wk)` in Lankien, `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "mundri") %>% pull(ma_malaria_4wk)` in Mundri and `r ssudan_malaria_4ma %>% filter(epiweek == reporting_week, site == "unity") %>% pull(ma_malaria_4wk)` in Unity. In `r four_weeks_earlier`, the four-week moving average was `r ssudan_malaria_4ma %>% filter(epiweek == four_weeks_earlier, site == "bentiu") %>% pull(ma_malaria_4wk)` in Bentiu PoC.
+
+<!-- #### Epicurve all projects -->
+```{r malaria_all_epicurve, fig.width = 16, fig.height = 8}
+## Histogram with line with 4 weekly average
+ggplot() +
+  geom_col(data = ssudan_malaria_wide, 
+           aes(x = epiweek, 
+               y = count, 
+               fill = factor(malaria_age,
+                             levels = c("all_malaria_under5", "all_malaria_over5"),
+                             labels = c("<5 yrs", "5+ yrs")))) +
+  ## add four week moving \naverage
+  geom_line(data = ssudan_malaria_4ma,
+            aes(x = epiweek, 
+                y = ma_malaria_4wk, colour = "moving \naverage"),
+            size = 1.2)  + 
+  ## adjust the date scale on the x axis
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ##create a legend for the 4 week moving \naverage
+  scale_colour_manual( values = c("moving \naverage" = "black")) +
+  ## facet by site
+  facet_grid(. ~ site) +
+  ## Add labels
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Weekly malaria cases in Bentiu PoC, Lankien, Mundri and Unity with a \n four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of malaria cases",
+       fill = "Age group",
+       colour = "")
+
+
+```
+
+
+
+## AJS
+From the start of `r reporting_year` until `r reporting_week` there were a 
+total of `r nrow(filter(ajs_poc_cl, year == 2020))` AJS cases in Bentiu PoC. There were
+`r fmt_count(filter(ajs_poc_cl, year == 2020), sex == "Female")` females and
+`r fmt_count(filter(ajs_poc_cl, year == 2020), sex == "Male")` males. The most affected age group overall in 2020 is `r tab_linelist(filter(ajs_poc_cl, year == 2020), age_group) %>% slice(which.max(n)) %>% pull(value)` years. There were a total of `r nrow(filter(ajs_poc_cl, epiweek2 == reporting_week))` AJS cases in `r reporting_week` and `r nrow(filter(ajs_poc_cl, epiweek2 == reporting_week, pt_outcome %in% c("death", "died")))` deaths.
+
+The last case of AJS in Lankien was reported in `r ben_lan_awd_mal %>% filter(site == "lankien") %>% rowwise() %>%  mutate(any_ajs = sum(acute_jaundice_syndrome_ages_5y, acute_jaundice_syndrome_ages_5y_2, na.rm = TRUE)) %>%  filter(any_ajs >=1) %>% select(epiweek, any_ajs, site) %>% mutate(date_week = as.Date(epiweek, format = "%y-%m-%d")) %>% group_by(site) %>% summarize(max_date = max(date_week)) %>% mutate(max_date_week = yearweek(max_date)) %>%  pull(max_date_week)`
+
+
+
+
+<!-- ### AJS epicurve -->
+```{r bentiu_ajs_epicurve}
+
+## AJS epicurve
+## Plot weeks vs AJS cases by age
+ajs_ben_epicurve_count <- ggplot(ajs_poc_cl_grp, aes(x = epiweek2, 
+                           y = n, 
+                                fill = as.factor(year))) +
+  geom_col( ) +
+  ## add the four week average as a line
+  geom_line(aes(x = epiweek2, 
+                y = four_week_roll, colour = "moving \naverage"), 
+            size = 1.2) +
+  ## add 3 month breaks and format the label
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly AJS cases in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
+       x = "Week",
+       y = "Number of AJS cases",
+       fill = "Year",
+       colour = "")
+
+```
+
+<!-- ### AJS epicurve by age -->
+```{r bentiu_ajs_epicurve_age}
+
+## AJS epicurve
+## Plot weeks vs AJS cases by year
+ajs_ben_epicurve_age <- ggplot(ajs_poc_cl_agegrp, aes(x = epiweek2, 
+                           y = n, 
+                                fill = as.factor(age_group))) +
+  geom_col( ) +
+  # ## add the four week average as a line
+  # geom_line(aes(x = epiweek2, 
+  #               y = four_week_roll, colour = "moving \naverage"), 
+  #           size = 1.2) +
+  ## add 3 month breaks and format the label
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  # scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly AJS cases in Bentiu PoC \nby age group, 2019-2020",
+       x = "Week",
+       y = "Number of AJS cases",
+       fill = "Year",
+       colour = "")
+
+
+
+```
+
+<!-- ### AJS epicurve- outcome -->
+```{r bentiu_ajs_epicurve_outcome}
+
+## AJS epicurve
+## Plot weeks vs AJS cases by pt_outcome
+ajs_ben_epicurve_outcome <- ggplot(ajs_poc_cl_outcome, aes(x = epiweek2, 
+                           y = n, 
+                                fill = factor(outcome, level = c("recovery", "dead")))) +
+  geom_col( ) +
+  ## add 3 month breaks and format the label
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## change colours for the fill
+  scale_fill_viridis_d() +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly AJS cases in Bentiu PoC by \noutcome status, 2019-2020",
+       x = "Week",
+       y = "Number of AJS cases",
+       fill = "Outcome",
+       colour = "")
+
+```
+
+
+<!-- #### Combine AJS epicurves -->
+```{r combine_ajs_epicurves, fig.width = 16, fig.height = 7}
+
+ajs_ben_epicurve_age + ajs_ben_epicurve_outcome 
+
+```
+
+
+<!-- ### Maps  -->
+<!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/// read_shapefiles \\\
+--------------------------------------------------------------------------------
+
+To create maps, you need to have a shapefile of the area. Often, the MSF GIS
+unit can provide shapefiles.
+
+Your shapefile can be a polygon or points. Polygons do not need to be contiguous.
+
+The names of the polygons or points MUST match the names in your linelist.
+
+Your coordinate reference system needs to be WGS84.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+```{r read_shapefiles, message = FALSE, warning = FALSE, echo = FALSE}
+
+## read in shapefile by sous_prefecture
+map_poc_raw <- read_sf(here::here("../../../2_GIS/bentiu/BentiuPoC_sector_bloc_191128.shp")) %>% 
+  # puts all column names to lower case
+  janitor::clean_names()                                                               
+  
+  
+#  Clean map data
+map_poc_cl <-  map_poc_raw %>% 
+  ## convert all values to lowercase
+  mutate_at(c("is_in_sect", "name"), str_to_lower) %>%  
+  mutate(is_in_sect = str_replace(is_in_sect, " ", "_"),  # replace space with _
+         name = str_replace(name, " ", "_"),              # replace space with _   
+         bloc = name,                                     # create bloc variable to match linelist 
+         sector_bloc_name = paste0(is_in_sect, " ", bloc))     # create variable that combines both sector and bloc number                                        
+
+## check the coordinate reference system (CRS)
+# st_crs(map_poc_cl)
+
+## if CRS not WGS84, reset it
+# map <- st_set_crs(map, value = 4326) # Sets to WGS84
+
+```
+
+<!-- ## Base layer from OSM -->
+
+```{r obtain_base_layer}
+
+tiles <- cartography::getTiles(
+  map_poc_cl,
+  type = "OpenStreetMap",
+  zoom = NULL,
+  crop = TRUE,
+  verbose = FALSE,
+  apikey = NA,
+  cachedir = FALSE,
+  forceDownload = FALSE
+)
+
+```
+
+
+<!-- ### AJS choropleth - cases last 3 weeks -->
+
+```{r choropleth_ajs_past3weeks, message = FALSE, warning = FALSE, echo = FALSE, error = FALSE}
+
+## Count cases by sector and block in the past 1 month
+ajs_past3wks <- ajs_poc_cl %>% 
+  filter(epiweek2 >= three_weeks_earlier & epiweek2 <= reporting_week ) %>% # Only keep cases that occurred in the past 4 week
+  filter(is.na(is_in_sect) == F) %>%                                   # only keep rows where there is sector information
+  group_by(is_in_sect, bloc) %>%                                       # group date by sector and block
+  tally() %>%                                                          # count rows matching above criteria per sector per block
+  mutate(sector_bloc_name = paste0(is_in_sect, " ", bloc))             # create variable that includes the name of the sector and bloc number
+
+# ## Define breaks
+# breakers <- classIntervals(ajs_past3wks$n, n = 3, style = "quantile", digits = 0)
+
+## create a categorical variable using the age_categories function 
+# ## (we aren't using ages - but it functions the same way!)
+# ajs_past3wks <- mutate(ajs_past3wks, 
+#                       cases = age_categories(n, 
+#                                              breakers = breakers$brks))
+
+  
+
+## Join case count to map data
+map_ajs_3weeks_cases <- map_poc_cl %>% 
+  left_join(ajs_past3wks, by = "sector_bloc_name") 
+
+
+
+## Plot map of cases by block
+
+ajs_map_bentiu_21 <- ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_ajs_3weeks_cases, aes(fill = as.factor(n))) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  # add a scalebar
+  annotation_scale() + 
+  # choose palette colour for fill
+  scale_fill_brewer(palette = "Dark2") +
+  # scale_x_discrete( breaks = breakers$brks) +
+  # label polygons
+  geom_sf_text(data = map_ajs_3weeks_cases, aes(label = bloc.x), colour = "black",
+               size = 3) +
+  geom_text(data = data.frame(), aes(label = 'Sector 1', x = 29.785, y = 9.339),
+            angle = 10, vjust = 1) +
+  geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34),
+            angle = 10, hjust =  0.8) +
+  geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339,
+                                     angle = -70, hjust = 1, vjust =  0.7)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, 
+                                     angle = -70, hjust = 1, vjust = - 0.1)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33,
+                                     angle = -70, hjust = 1, vjust = - 0.90)) +
+  # remove coordinates and axes
+  theme_void() +
+  labs(fill = "No. of cases",
+       captions = str_glue("Source: MSF data from {three_weeks_earlier} to {reporting_week}"),
+       title = "AJS cases in Bentiu PoC in the last 21 days, 2020") 
+
+
+```
+
+<!-- ## AJS choropleth - since start of the year -->
+
+```{r choropleth_ajs_2020, message = FALSE, warning = FALSE, echo = FALSE, error= FALSE}
+
+## Count cases by sector and block in the past 1 month
+ajs_2020 <- ajs_poc_cl %>% 
+  filter(year == 2020 ) %>% # Only keep cases that occurred in 2020
+  filter(is.na(is_in_sect) == F) %>%                                   # only keep rows where there is sector information
+  group_by(is_in_sect, bloc) %>%                                       # group date by sector and block
+  tally() %>%                                                          # count rows matching above criteria per sector per block
+  mutate(sector_bloc_name = paste0(is_in_sect, " ", bloc))             # create variable that includes the name of the sector and bloc number
+
+# define maximum number of cases
+max_ajs_2020_cases    <- max(ajs_2020$n, na.rm = TRUE) # define your highest no of cases
+
+## Define breaks
+breakers <- as.integer(c(
+                         # include zero as a standalone group
+                         0, 
+                         # 1 to 4 divisions, snapping the boundaries to the nearest 2
+                         find_breaks(n = max_ajs_2020_cases, breaks = 4, 
+                                     snap = 2)
+             ))
+
+## create a categorical variable using the age_categories function 
+## (we aren't using ages - but it functions the same way!)
+ajs_2020 <- mutate(ajs_2020, 
+                      cases = age_categories(n, 
+                                             breakers = breakers))
+
+  
+## Join case count to map data
+map_ajs_2020_cases <- map_poc_cl %>% 
+  left_join(ajs_2020, by = "sector_bloc_name") 
+
+
+## Plot map of cases by block
+
+ajs_map_bentiu_2020 <- ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_ajs_2020_cases, aes(fill = cases)) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  # add a scalebar
+  annotation_scale() + 
+  # choose palette colour for fill
+  scale_fill_brewer(palette = "Dark2") +
+  # scale_x_discrete( breaks = breakers$brks) +
+  # label polygons
+  geom_sf_text(data = map_ajs_2020_cases, aes(label = bloc.x), colour = "black",
+               size = 3) +
+  geom_text(data = data.frame(), aes(label = 'Sector 1', x = 29.785, y = 9.339),
+            angle = 10, vjust = 1) +
+  geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34),
+            angle = 10, hjust =  0.8) +
+  geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339,
+                                     angle = -70, hjust = 1, vjust =  0.7)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, 
+                                     angle = -70, hjust = 1, vjust = - 0.1)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33, 
+                                     angle = -70, hjust = 1, vjust = - 0.90)) +
+  # remove coordinates and axes
+  theme_void() +
+  labs(fill = "No. of cases",
+       captions = str_glue("Source: MSF data from {start_year} to {reporting_week}"),
+       title = "AJS cases in Bentiu PoC in 2020")
+
+
+```
+
+
+<!-- #### Combine AJS since 2020 and last 21 days plots together -->
+```{r combine_ajs_maps, fig.width = 16, fig.height = 7}
+
+ajs_map_bentiu_2020 + ajs_map_bentiu_21 
+
+```
+
+
+
+## Measles
+From the start of `r reporting_year` until `r reporting_week` there were a 
+total of `r nrow(filter(measles_poc_cl, year == 2020 ))` suspected measles cases and `r nrow(filter(measles_poc_cl, year == 2020, outcome2 == "dead"))` suspected measles deaths in Bentiu PoC. There were
+`r fmt_count(filter(measles_poc_cl, year == 2020), sex == "Female")` females and
+`r fmt_count(filter(measles_poc_cl, year == 2020), sex == "Male")` males. 
+There were a total of `r nrow(filter(measles_poc_cl, epiweek == reporting_week))` cases in `r reporting_week`. The most affected age group since the start of `r reporting_year` was `r tab_linelist(filter(measles_poc_cl, year == 2020), age_group) %>% slice(which.max(n)) %>% pull(value)` years.
+
+The last case of measles in Lankien was on `r ben_lan_awd_mal %>% filter(is.na(measles_ages_5y) == F | is.na(measles_ages_5y_2) == F, site == "lankien") %>% mutate(date_week = as.Date(epiweek, format = "%y-%m-%d")) %>% group_by(site) %>% summarize(max_date = max(date_week)) %>% mutate(max_date_week = yearweek(max_date)) %>%  pull(max_date_week)`.
+
+<!-- ### Measles Bentiu PoC epicurve -->
+
+
+```{r measles_poc_epicurve}
+## Plot weeks vs deaths by year
+measles_bentiu_cases_epicurve <- ggplot(measles_poc_cl_grp, aes(x = epiweek,
+                               y = n, 
+                               fill = as.factor(year))) +
+  geom_col() +
+  ## add the four week average as a line
+  geom_line(aes(x = epiweek, 
+                y = four_week_roll, colour = "moving \naverage"), 
+            size = 1.2) +
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## Add labels
+  labs(title = "Weekly measles cases in Bentiu PoC \nwith a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of measles cases",
+       fill = "Year",
+       colour = "")
+
+```
+
+<!-- ## Measles POC epicurve by age group -->
+
+
+```{r measles_poc_age_epicurve}
+## Plot weeks vs age group by year
+measles_bentiu_age_epicurve <- ggplot() +
+  geom_col(data = measles_poc_cl_age_grp, 
+           aes(x = epiweek,
+               y = n, 
+               fill = as.factor(age_group))) +
+  ## add the four week average as a line
+  geom_line(data = measles_poc_cl_grp,
+            aes(x = epiweek, 
+                y = four_week_roll,
+                colour = "moving \naverage"), 
+            size = 1.2) +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## Adjust the dates on x-axis
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## Add labels
+  labs(title = "Weekly measles cases in Bentiu PoC by \n age group and with a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of measles cases",
+       fill = "Age group",
+       colour = "")
+
+```
+
+<!-- ## Measles POC epicurve by outcome -->
+
+
+```{r measles_poc_outcome_epicurve}
+## Plot weeks vs deaths by year
+measles_bentiu_outcome_epicurve <- ggplot() +
+  geom_col(data = measles_poc_cl_outcome_grp, 
+           aes(x = epiweek,
+               y = n, 
+               fill = as.factor(outcome2))) +
+  ## add the four week average as a line
+  geom_line(data = measles_poc_cl_grp,
+            aes(x = epiweek, 
+                y = four_week_roll,
+                colour = "moving \naverage"), 
+            size = 1.2) +
+  ## Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## change colours for the fill
+  scale_fill_viridis_d() +
+  ## Adjust the dates on x-axis
+  scale_x_yearweek(date_breaks = "3 month", date_labels = "%m-%y") +
+  ## add legend for moving \naverage
+  scale_colour_manual(values = c("moving \naverage" = "black")) +
+  ## Add labels
+  labs(title = "Weekly measles cases in Bentiu PoC by \n outcome status and with a four-week rolling average, 2019-2020",
+       x = "Month",
+       y = "Number of measles cases",
+       fill = "Outcome status",
+       colour = "")
+
+```
+
+
+
+<!-- #### Combine measles epicurves -->
+```{r combine_measles_epicurves, fig.width = 16, fig.height = 7}
+
+measles_bentiu_age_epicurve + measles_bentiu_outcome_epicurve
+
+```
+
+
+
+
+<!-- ### Measles cases choropleth - cases last 3 weeks -->
+
+```{r choropleth_measles_past3weeks, message = FALSE, warning = FALSE, echo = FALSE}
+
+## Count cases by sector and block in the past 1 month
+measles_past3wks <- measles_poc_cl %>% 
+  filter(epiweek >= three_weeks_earlier & epiweek <= reporting_week ) %>% # Only keep cases that occurred in the past 4 week
+  filter(is.na(is_in_sect) == F) %>%                                   # only keep rows where there is sector information
+  group_by(is_in_sect, bloc) %>%                                       # group date by sector and block
+  tally() %>%                                                          # count rows matching above criteria per sector per block
+  mutate(sector_bloc_name = paste0(is_in_sect, " ", bloc))             # create variable that includes the name of the sector and bloc number
+
+## Define breaks
+# breakers <- classIntervals(measles_past3wks$n, n = 1, style = "quantile", digits = 0)
+
+## create a categorical variable using the age_categories function 
+# ## (we aren't using ages - but it functions the same way!)
+# ajs_past3wks <- mutate(ajs_past3wks, 
+#                       cases = age_categories(n, 
+#                                              breakers = breakers$brks))
+
+  
+
+## Join case count to map data
+map_measles_3weeks_cases <- map_poc_cl %>% 
+  left_join(measles_past3wks, by = "sector_bloc_name") 
+
+
+
+## Plot map of cases by block
+
+measles_map_bentiu_21 <- ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_measles_3weeks_cases, aes(fill = as.factor(n))) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  # add a scalebar
+  annotation_scale() + 
+  # choose palette colour for fill
+  scale_fill_brewer(palette = "Dark2") +
+  # scale_x_discrete( breaks = breakers$brks) +
+  # label polygons
+  geom_sf_text(data = map_measles_3weeks_cases, aes(label = bloc.x), colour = "black", size = 3) +
+  geom_text(data = data.frame(), aes(label = 'Sector 1', x = 29.785, y = 9.339),
+            angle = 10, vjust = 1) +
+  geom_text(data = data.frame(), aes(label = 'Sector 2', x = 29.7895, y = 9.34),
+            angle = 10, hjust =  0.8) +
+  geom_text(data = data.frame(), aes(label = 'Sector 3', x = 29.80, y = 9.339,
+                                     angle = -70, hjust = 1, vjust =  0.7)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 4', x = 29.8011, y = 9.3348, 
+                                     angle = -70, hjust = 1, vjust = - 0.1)) +
+  geom_text(data = data.frame(), aes(label = 'Sector 5', x = 29.8025, y = 9.33,
+                                     angle = -70, hjust = 1, vjust = - 0.90)) +
+  # remove coordinates and axes
+  theme_void() +
+  labs(fill = "No. of cases",
+       captions = str_glue("Source: MSF data from {three_weeks_earlier} to {reporting_week}"),
+       title = "Measles cases in Bentiu PoC in the last 21 days, 2020") 
+
+
+```
+
+<!-- ## Measles choropleth - since start of the year -->
+
+```{r choropleth, message = FALSE, warning = FALSE, echo = FALSE}
+
+## Count cases by sector and block in the past 1 month
+measles_2020 <- measles_poc_cl %>% 
+  filter(year == 2020 ) %>% # Only keep cases that occurred in 2020
+  filter(is.na(is_in_sect) == F) %>%                                   # only keep rows where there is sector information
+  group_by(is_in_sect, bloc) %>%                                       # group date by sector and block
+  tally() %>%                                                          # count rows matching above criteria per sector per block
+  mutate(sector_bloc_name = paste0(is_in_sect, " ", bloc))             # create variable that includes the name of the sector and bloc number
+
+# define maximum number of cases
+max_measles_2020_cases    <- max(measles_2020$n, na.rm = TRUE) # define your highest no of cases
+
+## Define breaks
+breakers <- as.integer(c(
+                         # include zero as a standalone group
+                         0, 
+                         # 1 to 4 divisions, snapping the boundaries to the nearest 2
+                         find_breaks(n = max_measles_2020_cases, breaks = 4, snap = 2)
+             ))
+
+## create a categorical variable using the age_categories function 
+## (we aren't using ages - but it functions the same way!)
+measles_2020 <- mutate(measles_2020, 
+                      cases = age_categories(n, 
+                                             breakers = breakers))
+
+  
+
+## Join case count to map data
+map_measles_2020_cases <- map_poc_cl %>% 
+  left_join(measles_2020, by = "sector_bloc_name") 
+
+
+
+## Plot map of cases by block
+
+measles_map_bentiu_2020  <- ggplot() +
+  ## add in the back ground tiles
+  ggspatial::layer_spatial(tiles, interpolate = TRUE) +
+  # shapefile as polygon
+  geom_sf(data = map_measles_2020_cases, aes(fill = cases)) + 
+  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) + 
+  # add a scalebar
+  annotation_scale() + 
+  # choose palette colour for fill
+  scale_fill_brewer(palette = "Dark2") +
+  # scale_x_discrete( breaks = breakers$brks) +
+  # label polygons
+  geom_sf_text(data = map_measles_2020_cases, aes(label = bloc.x), colour = "black", size = 3) +
+  geom_text(data = data.frame(), 
+            aes(label = 'Sector 1', 
+                x = 29.785, y = 9.339), 
+            angle = 10, vjust = 1) +
+  geom_text(data = data.frame(), 
+            aes(label = 'Sector 2',
+                x = 29.7895, y = 9.34),
+            angle = 10, hjust =  0.8) +
+  geom_text(data = data.frame(), 
+            aes(label = 'Sector 3',
+                x = 29.80, y = 9.339,
+                angle = -70, hjust = 1, vjust =  0.7)) +
+  geom_text(data = data.frame(),
+            aes(label = 'Sector 4',
+                x = 29.8011, y = 9.3348, 
+                angle = -70, hjust = 1, vjust = - 0.1)) +
+  geom_text(data = data.frame(), 
+            aes(label = 'Sector 5',
+                x = 29.8025, y = 9.33,
+                angle = -70, hjust = 1, vjust = - 0.90)) +
+  # remove coordinates and axes
+  theme_void() +
+  labs(fill = "No. of cases",
+       captions = str_glue("Source: MSF data from {start_year} to {reporting_week}"),
+       title = "Measles cases in Bentiu PoC in 2020")
+
+
+```
+
+
+<!-- #### Combine measles since 2020 and last 21 days plots together -->
+```{r combine_measles_maps, fig.width = 16, fig.height = 7}
+
+measles_map_bentiu_2020 + measles_map_bentiu_21 
+
+```
+
+## Limitations  
+* Data may not be received from some health sites at the time the data was compiled  
+
+* Surveillance data are not representative of the entire population  
+
+* Trends may be impacted in changes to health service provision i.e. additional malaria points opened  
+
+*  The lack of population data makes it difficult to assess the incidence of diseases across projects and only permits us to compare case numbers  
+
+* Due to delays in processing of lab samples and difficulty in accessing Lankien, we may not see an increase in the number of confirmed COVID-19 cases in the near future    
+
+
+## Actions/updates
+* The MoH has revised the COVID-19 case defintion and it now no longer includes an epidemiological component. By following these criteria across all projects, we will see a large increase in suspect cases. This will likely be very challenging given our current COVID-19 bed capacity and the delays getting lab results
+
+* The MoH has revised the case investigation form in line with the revised case definition. All projects will need to start using the revised case investigation form moving forward.
+
+*  Bentiu PoC has implemented changes to screening and testing and is starting to see an increase in suspected cases (all have tested negative so far) This will likely further increase as routine testing of RTI cases in the ITFC is fully implemented
+
+* COVID-19 linelist is available in Mundri and suspect cases will be added to it moving forward
+
+* A webinar on the COVID-19 patient card will take place tomorrow and should help clarify why and how it should be used
+
+* Indoor residual spraying in Bentiu PoC should have taken place last weekend.
+
+* Draft of a CBMC data analysis available for Lankien (2019-2020 data). It will be shared in the coming days and analysis of Mundri CBMC data will be next followed by Unity.
+
+* IPD and OPD data for Lankien (2014-2020) have been obtained to conduct time-series analysis. This analysis will be led by the epi advisor and shared in the coming weeks.
+
+* DHIS2 implementation plans for Mundri/Unity still ongoing but hopefully before the end of the year in both sites.
+
+
+
+
+
+## Annex
+The majority of cases that are classified as “other” in the below figure were sent to the CTC = COVID treatment centre (also the cholera treatment centre during cholera outbreaks.
+
+<!-- #### Epicurve of outcome of COVID-19 cases -->
+```{r epicurve_outcome_covid}
+
+ggplot(covid_outcome_counts, aes(x = epiweek, 
+                                 y = n, 
+                                 fill = as.factor(outcome_patcourse_status2))) +
+  geom_col( ) +
+   ## adjust the ticks on x-axis
+  scale_x_yearweek(date_breaks = "1 month", date_labels = "%U-%Y") +
+  # facet by site
+  facet_grid( . ~ site) +
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly suspected and confirmed cases\n by outcome status in Bentiu PoC, Lankien and Leer, 2020",
+       x = "Week",
+       y = "Number of cases",
+       fill = "Outcome status") +
+  theme(legend.title = element_text(size =14))
+
+```
+
+
+<!-- ## Plot of Bentiu and Lankien consultations -->
+The OPD consultations in Bentiu PoC returning to pre-malaria outbreak level but still very large numbers of consultations at the malaria point (data not shown here). OPD consultations in Lankien remain at lower levels compared to the same period last year.
+
+```{r plot_ben_lan_opd_consultations}
+
+## Plot number of OPD consultations over time in Bentiu and Lankien
+ggplot(ben_lan_awd_mal, 
+       aes(x = epiweek, y = total_opd_consultations)) +
+  geom_col(colour = "blue") +
+  ## adjust the ticks on x-axis
+  scale_x_yearweek(date_breaks = "3 months", date_labels = "%U-%Y") +
+  # facet by site
+  facet_grid( . ~ site) +
+  # Adjust size of plot title
+  theme(plot.title = element_text(size = 14)) +
+  ## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  ## Add labels
+  labs(title = "Number of weekly OPD consultations in Bentiu PoC and Lankien, 2019-2020",
+       x = "Week",
+       y = "Number of cases") +
+  theme(legend.title = element_text(size =14))
+
+```
+
+
